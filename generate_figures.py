@@ -1067,12 +1067,13 @@ def plot_figure_4_Unitary_E_I_Breakdown():
         ax.set_ylim(0, ymax_r3)
         apply_clean_yticks(ax)
 
-    ## ROW 4: Estimated GABAA Inhibition Amplitude at ISI=300
+    ## ROW 4: Estimated GABAA Inhibition Amplitude at ISI=300 (absolute value)
     axs_row4 = []
     for col, plabel in enumerate(pathway_labels):
         ax = fig.add_subplot(gs[3, col])
         axs_row4.append(ax)
         sub = get_unitary(df_amplitudes, plabel, 'Estimated_Inhibition_Amplitude')
+        sub['Estimated_Inhibition_Amplitude'] = sub['Estimated_Inhibition_Amplitude'].abs()
         plot_bar_scatter(ax, sub, 'Genotype', 'Estimated_Inhibition_Amplitude', 'Genotype',
                          order=['WT', 'I80T/+'], unique_col='Cell_ID')
         if col == 0:
@@ -1085,20 +1086,21 @@ def plot_figure_4_Unitary_E_I_Breakdown():
         ax.tick_params(axis='x', labelsize=7)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
-        ax.set_ylim(top=0)  # values are negative; cap at 0
+        ax.set_ylim(bottom=0)
 
-    # Sync all three y-axes for Row 4 (GABAA - negative)
-    ymin_r4 = min(ax.get_ylim()[0] for ax in axs_row4)
+    # Sync all three y-axes for Row 4 (GABAA - absolute values)
+    ymax_r4 = max(ax.get_ylim()[1] for ax in axs_row4)
     for ax in axs_row4:
-        ax.set_ylim(ymin_r4, 0)
+        ax.set_ylim(0, ymax_r4)
         apply_clean_yticks(ax)
 
-    ## ROW 5: GABAB Decay Area at ISI=300 (stored as negative, plot as positive)
+    ## ROW 5: GABAB Decay Area at ISI=300 (absolute value)
     axs_row5 = []
     for col, plabel in enumerate(pathway_labels):
         ax = fig.add_subplot(gs[4, col])
         axs_row5.append(ax)
         sub = get_unitary(df_amplitudes, plabel, 'GABAB_Area')
+        sub['GABAB_Area'] = sub['GABAB_Area'].abs()
         plot_bar_scatter(ax, sub, 'Genotype', 'GABAB_Area', 'Genotype',
                          order=['WT', 'I80T/+'], unique_col='Cell_ID')
         if col == 0:
@@ -1111,16 +1113,16 @@ def plot_figure_4_Unitary_E_I_Breakdown():
         ax.tick_params(axis='x', labelsize=7)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
-        ax.set_ylim(top=0)  # values are negative; cap at 0
+        ax.set_ylim(bottom=0)
 
-    # Sync only CA3 Apical (1) and CA3 Basal (2) y-axes for Row 5 (GABAB - negative)
-    ymin_r5_ca3 = min(axs_row5[1].get_ylim()[0], axs_row5[2].get_ylim()[0])
+    # Sync only CA3 Apical (1) and CA3 Basal (2) y-axes for Row 5 (GABAB - absolute values)
+    ymax_r5_ca3 = max(axs_row5[1].get_ylim()[1], axs_row5[2].get_ylim()[1])
     for ax in [axs_row5[1], axs_row5[2]]:
-        ax.set_ylim(ymin_r5_ca3, 0)   # cap top at 0 — no blank space above baseline
+        ax.set_ylim(0, ymax_r5_ca3)
         apply_clean_yticks(ax)
-    # ECIII scales independently but same top-cap rule
+    # ECIII scales independently
     eciii_ax = axs_row5[0]
-    eciii_ax.set_ylim(eciii_ax.get_ylim()[0], 0)
+    eciii_ax.set_ylim(0, eciii_ax.get_ylim()[1])
     apply_clean_yticks(eciii_ax)
 
     # -----------------------------------------------------------------------
@@ -1255,10 +1257,12 @@ def plot_figure_5_EI_frequency_dependence(output_path='paper_figures/Figure_5_EI
     for ax in axs_exc:
         ax.set_ylim(0, 25)
 
-    # ROW 4: Inh (GABAA) Amplitudes
-    # ROW 3 (C): Inh (GABAA) Amplitudes
+    # ROW 3 (C): Inh (GABAA) Amplitudes (absolute value)
     ylims_inh_a = []
     axs_inh_a = []
+    # Take absolute value of Estimated_Inhibition_Amplitude for plotting
+    df_amplitudes_abs_inh = df_amplitudes.copy()
+    df_amplitudes_abs_inh['Estimated_Inhibition_Amplitude'] = df_amplitudes_abs_inh['Estimated_Inhibition_Amplitude'].abs()
     for col, (label, pathway_key, channel) in enumerate(pathways):
         ax = fig.add_subplot(gs[2, col])
         axs_inh_a.append(ax)
@@ -1266,7 +1270,7 @@ def plot_figure_5_EI_frequency_dependence(output_path='paper_figures/Figure_5_EI
             add_subplot_label(ax, "C", fontsize=10, fontweight='bold')
         pathway_name = {'perforant': 'Perforant', 'schaffer': 'Schaffer', 
                         'basal': 'Basal_Stratum_Oriens'}[pathway_key]
-        ylim = plot_metric_comparison(ax, df_amplitudes, pathway_name, 
+        ylim = plot_metric_comparison(ax, df_amplitudes_abs_inh, pathway_name, 
                                      'Estimated_Inhibition_Amplitude', 'Inh (GABAA) (mV)')
         
         # Add Markers
@@ -1278,13 +1282,15 @@ def plot_figure_5_EI_frequency_dependence(output_path='paper_figures/Figure_5_EI
         
     # Sync Y-axis for ALL pathways in Row 3 (Panel C)
     max_y = max([yl[1] for yl in ylims_inh_a if yl is not None])
-    min_y = min([yl[0] for yl in ylims_inh_a if yl is not None])
     for ax in axs_inh_a:
-        ax.set_ylim(min_y, max_y)
+        ax.set_ylim(0, max_y)
 
-    # ROW 4 (D): Inh (GABAB) Area
+    # ROW 4 (D): Inh (GABAB) Area (absolute value)
     ylims_inh_b = []
     axs_inh_b = []
+    # Take absolute value of GABAB_Area for plotting
+    df_amplitudes_abs_gabab = df_amplitudes.copy()
+    df_amplitudes_abs_gabab['GABAB_Area'] = df_amplitudes_abs_gabab['GABAB_Area'].abs()
     for col, (label, pathway_key, channel) in enumerate(pathways):
         ax = fig.add_subplot(gs[3, col])
         axs_inh_b.append(ax)
@@ -1292,7 +1298,7 @@ def plot_figure_5_EI_frequency_dependence(output_path='paper_figures/Figure_5_EI
             add_subplot_label(ax, "D", fontsize=10, fontweight='bold')
         pathway_name = {'perforant': 'Perforant', 'schaffer': 'Schaffer', 
                         'basal': 'Basal_Stratum_Oriens'}[pathway_key]
-        ylim = plot_metric_comparison(ax, df_amplitudes, pathway_name, 
+        ylim = plot_metric_comparison(ax, df_amplitudes_abs_gabab, pathway_name, 
                                      'GABAB_Area', 'Slow IPSP Area (mV·ms)')
         
         # Add Markers
@@ -1302,10 +1308,10 @@ def plot_figure_5_EI_frequency_dependence(output_path='paper_figures/Figure_5_EI
         ylims_inh_b.append(ylim)
         if col > 0: ax.set_ylabel('')
         
-    # Sync Y-axis for ALL pathways in Row 4 (Panel D) — fix between -1 and 0
+    # Sync Y-axis for ALL pathways in Row 4 (Panel D) — fix between 0 and 1
     for ax in axs_inh_b:
-        ax.set_ylim(-1, 0)
-        ax.set_yticks([-1.0, -0.8, -0.6, -0.4, -0.2, 0.0])
+        ax.set_ylim(0, 1)
+        ax.set_yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
 
     # Save multiple formats
     for ext in ['.png', '.pdf', '.svg']:
@@ -1462,7 +1468,7 @@ def plot_figure_7_dendritic():
     df_stats = pd.read_csv(stats_path) if os.path.exists(stats_path) else None
     
     if plateau_df is not None and not plateau_df.empty:
-        plot_plateau_area_bars_fig6(fig, gs, plateau_df, df_stats, start_row=4, label="C")
+        plot_plateau_area_bars_fig7(fig, gs, plateau_df, df_stats, start_row=4, label="C")
     else:
         ax_c_bar = fig.add_subplot(gs[4, :])
         add_subplot_label(ax_c_bar, "C")
@@ -1484,7 +1490,7 @@ def plot_figure_7_dendritic():
     supralin_stats_path = os.path.join('paper_data', 'Plateau_data', 'Stats_Results_Figure_7.csv')
     if df_auc_total is not None and not df_auc_total.empty:
         df_stats_full = pd.read_csv(supralin_stats_path) if os.path.exists(supralin_stats_path) else None
-        plot_supralinear_auc_bars_fig6(fig, gs, df_auc_total, df_stats_full, start_row=6, label="E")
+        plot_supralinear_auc_bars_fig7(fig, gs, df_auc_total, df_stats_full, start_row=6, label="E")
         # Clamp all three AUC panels to ymin=-20 so scale is compact
         for col in range(3):
             _ax = fig.axes[-(3 - col)]   # last 3 axes added by the function

@@ -511,7 +511,7 @@ def run_stats_figure_7():
         print(f"  Both Pathway - WT: n={len(wt)}, GNB1: n={len(gnb1)}")
         res = compare_two_groups(wt, gnb1)
         res.update({'Mean_WT': mean_wt, 'Mean_GNB1': mean_gnb1, 'SEM_WT': sem_wt, 'SEM_GNB1': sem_gnb1})
-        record_stat("Fig 6C", "Plateau Area (Both): WT vs GNB1", res, n_wt=len(wt), n_gnb1=len(gnb1))
+        record_stat("Fig 7C", "Plateau Area (Both): WT vs GNB1", res, n_wt=len(wt), n_gnb1=len(gnb1))
         
         # Schaffer Pathway
         plateau_sch = df_plateau[
@@ -525,7 +525,7 @@ def run_stats_figure_7():
         if len(wt) > 0 and len(gnb1) > 0:
             res = compare_two_groups(wt, gnb1)
             res.update({'Mean_WT': wt.mean(), 'Mean_GNB1': gnb1.mean(), 'SEM_WT': wt.sem(), 'SEM_GNB1': gnb1.sem()})
-            record_stat("Fig 6C", "Plateau Area (Schaffer): WT vs GNB1", res, n_wt=len(wt), n_gnb1=len(gnb1))
+            record_stat("Fig 7C", "Plateau Area (Schaffer): WT vs GNB1", res, n_wt=len(wt), n_gnb1=len(gnb1))
         
         # Perforant Pathway
         plateau_perf = df_plateau[
@@ -539,7 +539,7 @@ def run_stats_figure_7():
         if len(wt) > 0 and len(gnb1) > 0:
             res = compare_two_groups(wt, gnb1)
             res.update({'Mean_WT': wt.mean(), 'Mean_GNB1': gnb1.mean(), 'SEM_WT': wt.sem(), 'SEM_GNB1': gnb1.sem()})
-            record_stat("Fig 6C", "Plateau Area (Perforant): WT vs GNB1", res, n_wt=len(wt), n_gnb1=len(gnb1))
+            record_stat("Fig 7C", "Plateau Area (Perforant): WT vs GNB1", res, n_wt=len(wt), n_gnb1=len(gnb1))
 
     # ===========================================================================
     # PANEL F: Supralinear Total AUC - WT vs GNB1 by Pathway
@@ -589,7 +589,7 @@ def run_stats_figure_7():
                 res = compare_two_groups(wt, gnb1)
                 res.update({'Mean_WT': wt.mean(), 'Mean_GNB1': gnb1.mean(),
                             'SEM_WT': wt.sem(), 'SEM_GNB1': gnb1.sem()})
-                record_stat("Fig 6F", f"Supralinear Total AUC ({display_label}): WT vs GNB1",
+                record_stat("Fig 7E", f"Supralinear Total AUC ({display_label}): WT vs GNB1",
                             res, n_wt=len(wt), n_gnb1=len(gnb1))
 
 
@@ -677,7 +677,7 @@ def run_stats_figure_7():
                     if len(wt) > 0 and len(gnb1) > 0:
                         res = compare_two_groups(wt, gnb1)
                         res.update({'Mean_WT': wt.mean(), 'Mean_GNB1': gnb1.mean(), 'SEM_WT': wt.sem(), 'SEM_GNB1': gnb1.sem()})
-                        record_stat("Fig 6G", f"Cycle {cycle_num} ({pathway_label}): WT vs GNB1", res)
+                        record_stat("Fig 7F", f"Cycle {cycle_num} ({pathway_label}): WT vs GNB1", res)
             else:
                  # Record a non-significant result effectively for the whole group?
                  # Actually, if we skip recording, generate_figures won't draw asterisks, which is what we want.

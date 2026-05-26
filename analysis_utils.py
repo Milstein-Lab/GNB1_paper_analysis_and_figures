@@ -3060,7 +3060,7 @@ def calculate_plateau_area_under_curve(trace, sampling_rate=20000, threshold_mv=
 
     # 1. Threshold Detection (RAW MAX - NO SMOOTHING)
     if np.max(segment) < threshold_mv:
-        return np.nan
+        return 0.0
     else:
         # 2. Suprathreshold Area (Area above the threshold line)
         # Shift trace down by threshold and rectify at zero

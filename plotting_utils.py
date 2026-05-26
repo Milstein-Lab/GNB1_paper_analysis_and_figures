@@ -3575,7 +3575,7 @@ def remove_artifacts_automated(data, acquisition_frequency, delete_start_stim, d
 
 
 # =========================================================================
-# Figure 7 Traces 
+# Figure 8 Traces 
 # =========================================================================
 def plot_traces_GIRK_exp(ax, traces_before, traces_after, genotype, drug_name, add_legend=False, add_scale=False):
     """Plot Gabazine vs Gabazine+Drug traces with SEM"""
@@ -4254,7 +4254,7 @@ def plot_theta_averaged_traces(fig, gs, processed_stats, cols, acq_freq=20000, s
                 ax.legend(frameon=False, fontsize=6, loc='upper right')
 
 
-def plot_plateau_area_bars_fig6(fig, gs, plateau_df, df_stats=None, start_row=4, label="C", square=True):
+def plot_plateau_area_bars_fig7(fig, gs, plateau_df, df_stats=None, start_row=4, label="C", square=True):
     """
     Plot plateau area bar plots for Panel C.
     
@@ -4285,32 +4285,49 @@ def plot_plateau_area_bars_fig6(fig, gs, plateau_df, df_stats=None, start_row=4,
             add_subplot_label(ax_bar, label)
         
         pathway_data = plateau_filt[plateau_filt['Pathway'] == pathway].copy()
+
+        # --- Extract N numbers from stats to ensure Figure matches Text ---
+        n_override = None
+        if df_stats is not None:
+             # Match pathway names to match stats file
+             pathway_stats_name = pathway.replace('Perforant', 'ECIII').replace('Schaffer', 'CA3').replace('Both Pathways', 'Both')
+             
+             match_n = df_stats[
+                (df_stats['Comparison'].str.contains(pathway_stats_name, case=False, na=False)) & 
+                (df_stats['Figure_Panel'].astype(str).str.contains(label, na=False))
+             ]
+             if not match_n.empty:
+                 row_n = match_n.iloc[0]
+                 if 'N_WT' in row_n.index and 'N_GNB1' in row_n.index:
+                     n_override = {'WT': int(row_n['N_WT']), 'I80T/+': int(row_n['N_GNB1'])}
         
-        plot_bar_scatter(ax_bar, pathway_data, 'Genotype', 'Plateau_Area', 'Genotype', order=['WT', 'I80T/+'], unique_col='Cell_ID')
+        plot_bar_scatter(ax_bar, pathway_data, 'Genotype', 'Plateau_Area', 'Genotype', order=['WT', 'I80T/+'], unique_col='Cell_ID', override_n_counts=n_override, ymin=-5)
         
         if square:
             ax_bar.set_box_aspect(1)
         
         # Each pathway scales independently — apply_clean_yticks already run inside plot_bar_scatter
         # Ensure bottom is at or below 0 (some plateau areas may be slightly negative)
-        apply_clean_yticks(ax_bar)
+        # apply_clean_yticks removed: plot_bar_scatter already handles this and the ymin=-5 clamp.
         
         if p_idx == 0:
             ax_bar.set_ylabel('Plateau Area\n(mV·s)', fontsize=8)
         
         # Add stats annotation
         if df_stats is not None:
-            # Map pathway names to match stats file (already matches: Perforant, Schaffer, Both)
+            # Map pathway names to match stats file (e.g. 'Perforant', 'Schaffer', 'Both')
             pathway_stats_name = pathway
-            match = df_stats[
-                (df_stats['Comparison'].str.contains(pathway_stats_name, na=False)) & 
-                (df_stats['Figure_Panel'] == 'Fig 6C')
+            
+            # Search for significance matching the pathway and panel label
+            match_sig = df_stats[
+                (df_stats['Comparison'].str.contains(pathway_stats_name, case=False, na=False)) & 
+                (df_stats['Figure_Panel'].astype(str).str.contains(label, na=False))
             ]
             
-            if not match.empty:
-                # Use raw p-value (no FDR - independent hypotheses)
-                p_val = match.iloc[0]['P_Value']
-                print(f"DEBUG Fig 6C: Pathway={pathway}, Matched={match.iloc[0]['Comparison']}, P={p_val}, Significance={match.iloc[0]['Significance']}")
+            if not match_sig.empty:
+                # Use raw p-value
+                p_val = match_sig.iloc[0]['P_Value']
+                print(f"DEBUG Fig 7{label}: Pathway={pathway}, Matched={match_sig.iloc[0]['Comparison']}, P={p_val}, Significance={match_sig.iloc[0]['Significance']}")
                 y_max = pathway_data['Plateau_Area'].max()
                 y_pos = y_max * 1.1
                 
@@ -4574,7 +4591,7 @@ def plot_supralinear_peak_cycles(fig, gs, df_peaks, df_stats=None, df_anova=None
         # ----------------------------------------------------------------------
         if df_stats is not None:
             # Filter for Panel F
-            panel_stats = df_stats[df_stats['Figure_Panel'] == 'Fig 6F']
+            panel_stats = df_stats[df_stats['Figure_Panel'] == 'Fig 7F']
             label_tag = stats_label_map[pathway]
             
             # 1. Check Interaction for this pathway
@@ -4667,7 +4684,7 @@ def plot_single_genotype_gabazine(ax, df_amplitudes, pathway_name, genotype, df_
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.legend(frameon=False, loc='best', fontsize=7)
-def plot_supralinear_auc_bars_fig6(fig, gs, auc_total_df, df_stats=None, start_row=7, label="F", square=True):
+def plot_supralinear_auc_bars_fig7(fig, gs, auc_total_df, df_stats=None, start_row=7, label="F", square=True):
     """
     Plot supralinear total AUC bar plots for Panel F (like Panel C).
     
@@ -4700,14 +4717,16 @@ def plot_supralinear_auc_bars_fig6(fig, gs, auc_total_df, df_stats=None, start_r
         n_override = None
         if df_stats is not None:
              pathway_stats_name = pathway.replace('Perforant', 'ECIII').replace('Schaffer', 'CA3').replace('Both Pathways', 'Both')
-             match = df_stats[
-                (df_stats['Comparison'].str.contains(pathway_stats_name, na=False)) & 
-                (df_stats['Figure_Panel'] == 'Fig 6F')
+             
+             # Flexible match to handle E/F renumbering (matches 'E' or 'F' in Fig 7E, Fig 7F, etc.)
+             match_n = df_stats[
+                (df_stats['Comparison'].str.contains(pathway_stats_name, case=False, na=False)) & 
+                (df_stats['Figure_Panel'].astype(str).str.contains(f"{label}|F", na=False))
              ]
-             if not match.empty:
-                 row = match.iloc[0]
-                 if 'N_WT' in row.index and 'N_GNB1' in row.index:
-                     n_override = {'WT': int(row['N_WT']), 'I80T/+': int(row['N_GNB1'])}
+             if not match_n.empty:
+                 row_n = match_n.iloc[0]
+                 if 'N_WT' in row_n.index and 'N_GNB1' in row_n.index:
+                     n_override = {'WT': int(row_n['N_WT']), 'I80T/+': int(row_n['N_GNB1'])}
 
         plot_bar_scatter(ax_bar, pathway_data, 'Genotype', 'Total_AUC', 'Genotype', order=['WT', 'I80T/+'], unique_col='Cell_ID', override_n_counts=n_override)
         
@@ -4727,16 +4746,16 @@ def plot_supralinear_auc_bars_fig6(fig, gs, auc_total_df, df_stats=None, start_r
             # Map pathway names to match stats file
             pathway_stats_name = pathway.replace('Perforant', 'ECIII').replace('Schaffer', 'CA3').replace('Both Pathways', 'Both')
             
-            # Filter specifically for Panel F stats to avoid confusion with Panel C
-            match = df_stats[
-                (df_stats['Comparison'].str.contains(pathway_stats_name, na=False)) & 
-                (df_stats['Figure_Panel'] == 'Fig 6F')
+            # Robust match for Panel E/F (AUC)
+            match_sig = df_stats[
+                (df_stats['Comparison'].str.contains(pathway_stats_name, case=False, na=False)) & 
+                (df_stats['Figure_Panel'].astype(str).str.contains(f"{label}|F", na=False))
             ]
             
-            if not match.empty:
-                # Use raw p-value (no FDR - independent hypotheses)
-                p_val = match.iloc[0]['P_Value']
-                print(f"DEBUG Fig 6F: Pathway={pathway}, Matched={match.iloc[0]['Comparison']}, P={p_val}, Significance={match.iloc[0]['Significance']}")
+            if not match_sig.empty:
+                # Use raw p-value
+                p_val = match_sig.iloc[0]['P_Value']
+                print(f"DEBUG Fig 7{label}: Pathway={pathway}, Matched={match_sig.iloc[0]['Comparison']}, P={p_val}, Significance={match_sig.iloc[0]['Significance']}")
                 
                 # Calculate y_pos based on actual plot limits (handles negative values)
                 y_max_plot = y_lim_top  # Use the ylim_top calculated globally
@@ -4875,32 +4894,38 @@ def prepare_figure_7_data(df_auc_total=None):
                 processed_stats[geno][pathway]['Expected_mean'] = np.mean(arr, axis=0)
                 processed_stats[geno][pathway]['Expected_sem'] = np.std(arr, axis=0) / np.sqrt(len(arr))
 
-    # Load Plateau Data for Panel E (Plateau Area — uses 20mV threshold)
+    # 4. Load Plateau Data for Panel C (Plateau Area — uses 20mV threshold)
     plateau_csv_path = os.path.join('paper_data', 'Plateau_data', 'Plateau_data.csv')
     plateau_df = pd.DataFrame()
     if os.path.exists(plateau_csv_path):
         plateau_df = pd.read_csv(plateau_csv_path)
         plateau_df['Cell_ID'] = plateau_df['Cell_ID'].astype(str)
 
-    # Panel D (Supralinear AUC) uses cells from Supralinear_AUC_Total.csv,
-    # filtered by master_df inclusion criteria:
-    #   1. 'Inclusion' column must contain 'plateau' (all pathways)
-    #   2. 'Single Pathway Plateau Inclusion' == 'Yes' (Schaffer/Perforant — enforced at export time)
-    # Panel D is INDEPENDENT of Panel E — no 20mV plateau threshold cross-filter.
-    if df_auc_total is not None and not df_auc_total.empty:
-        df_auc_total['Cell_ID'] = df_auc_total['Cell_ID'].astype(str)
-        # Safety filter: only keep cells whose master_df Inclusion contains 'plateau'
-        if os.path.exists('master_df.csv'):
-            mdf = pd.read_csv('master_df.csv', low_memory=False)
-            plateau_ok = set(
-                mdf[mdf['Inclusion'].astype(str).str.contains('plateau', case=False, na=False)]['Cell_ID'].astype(str)
-            )
-            before = len(df_auc_total)
+    # 5. Load Supralinear AUC Data for Panel E
+    # Both panels use cells from their respective CSVs, filtered by master_df inclusion criteria:
+    #   1. 'Inclusion' column must contain 'plateau'
+    #   2. 'Single Pathway Plateau Inclusion' == 'Yes' (Schaffer/Perforant)
+    
+    if os.path.exists('master_df.csv'):
+        mdf = pd.read_csv('master_df.csv', low_memory=False)
+        plateau_ok = set(
+            mdf[mdf['Inclusion'].astype(str).str.contains('plateau', case=False, na=False)]['Cell_ID'].astype(str)
+        )
+        
+        # Filter Plateau Area (Panel C)
+        if not plateau_df.empty:
+            before_c = len(plateau_df)
+            plateau_df = plateau_df[plateau_df['Cell_ID'].isin(plateau_ok)].copy()
+            print(f"  Panel C: {len(plateau_df)} rows for Plateau Area (filtered {before_c - len(plateau_df)} non-plateau cells).")
+            
+        # Filter Supralinear AUC (Panel E)
+        if df_auc_total is not None and not df_auc_total.empty:
+            df_auc_total['Cell_ID'] = df_auc_total['Cell_ID'].astype(str)
+            before_e = len(df_auc_total)
             df_auc_total = df_auc_total[df_auc_total['Cell_ID'].isin(plateau_ok)].copy()
-            print(f"  Panel D: {len(df_auc_total)} rows for Supralinear AUC (filtered {before - len(df_auc_total)} non-plateau cells).")
-        else:
-            print(f"  Panel D: Using {len(df_auc_total)} rows for Supralinear AUC (master_df not found for filtering).")
-
+            print(f"  Panel E: {len(df_auc_total)} rows for Supralinear AUC (filtered {before_e - len(df_auc_total)} non-plateau cells).")
+    else:
+        print(f"  ⚠ Warning: master_df.csv not found for Panel C/E filtering.")
 
     return raw_data, processed_stats, plateau_df, df_auc_total, supralin_traces
 
@@ -5484,11 +5509,8 @@ def plot_unitary_gabab_area_delta_single(ax, delta_csv_path, drug_name, pathway_
         ax.text(0.5, 0.5, f'No {drug_name}\n{pathway_name} data', ha='center', va='center', transform=ax.transAxes, fontsize=7)
         return
 
-    # User says Post - Pre is correct for data, but magnitude decrease should "go down"
-    # Magnitude = -Area (since GABAB areas are negative)
-    # Mag_Delta = Mag_Post - Mag_Pre = (-sub['Post_GABAB_Area']) - (-sub['Pre_GABAB_Area'])
-    # This equals Pre_Area - Post_Area.
-    sub['Inhibition_Delta'] = sub['Pre_GABAB_Area'] - sub['Post_GABAB_Area']
+    # Use absolute values: |Post| - |Pre| = negative when drug reduces GABAB magnitude
+    sub['Inhibition_Delta'] = sub['Post_GABAB_Area'].abs() - sub['Pre_GABAB_Area'].abs()
 
     plot_bar_scatter(ax, sub, 'Genotype', 'Inhibition_Delta', 'Genotype',
                      order=['WT', 'I80T/+'], unique_col='Cell_ID')
