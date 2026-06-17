@@ -939,23 +939,31 @@ def plot_example_rheobase_and_sweeps(ax, data_dir, master_df=None, target_cell_i
         # Plot the main trace
         ax.plot(zoomed_time, zoomed_trace, color=color, linewidth=1)
         
-        # Add AHP decay shading (from trough to threshold recovery)
-        # Find decay duration
-        decay_duration_samples = int(50 / 1000 * sampling_rate)  # 50ms max
-        decay_end_idx = min(len(rheobase_trace) - 1, ahp_trough_idx + decay_duration_samples)
+        # Find AHP recovery point (where trace returns to threshold after trough)
+        trace_after_trough = rheobase_trace[ahp_trough_idx:]
+        recovery_indices = np.where(trace_after_trough >= threshold_voltage)[0]
+        if len(recovery_indices) > 0:
+            ahp_recovery_idx = ahp_trough_idx + recovery_indices[0]
+        else:
+            ahp_recovery_idx = min(len(rheobase_trace) - 1, ahp_trough_idx + int(50 / 1000 * sampling_rate))
         
         if show_annotations:
-            if decay_end_idx > zoom_start_idx and ahp_trough_idx < zoom_end_idx:
-                # Adjust for zoom
-                decay_start_zoom = max(0, ahp_trough_idx - zoom_start_idx)
-                decay_end_zoom = min(len(zoomed_trace), decay_end_idx - zoom_start_idx)
-                
-                # Fill between threshold and trace
+            minimal = (show_annotations == 'minimal')
+            
+            # Full AHP area: from peak to recovery
+            ahp_fill_start = max(0, peak_idx - zoom_start_idx)
+            ahp_fill_end = min(len(zoomed_trace), ahp_recovery_idx - zoom_start_idx)
+            
+            if ahp_fill_end > ahp_fill_start:
+                # Only fill where trace is below threshold
+                fill_trace = zoomed_trace[ahp_fill_start:ahp_fill_end]
+                fill_time = zoomed_time[ahp_fill_start:ahp_fill_end]
                 ax.fill_between(
-                    zoomed_time[decay_start_zoom:decay_end_zoom],
+                    fill_time,
                     threshold_voltage,
-                    zoomed_trace[decay_start_zoom:decay_end_zoom],
-                    color='lightgreen', alpha=0.3, label='AHP Decay Area'
+                    fill_trace,
+                    where=(fill_trace <= threshold_voltage),
+                    color='lightgreen', alpha=0.3, label='AHP Area'
                 )
             
             # Add horizontal reference lines and annotations
@@ -965,51 +973,52 @@ def plot_example_rheobase_and_sweeps(ax, data_dir, master_df=None, target_cell_i
             ax.text(zoomed_time[0] + 1, threshold_voltage + 1.5, thresh_label, 
                     fontsize=8, va='bottom', ha='left', color='gray', fontweight='bold')
             
-            # 2. Peak marker
-            ax.plot(zoomed_time[peak_idx_zoom], peak_voltage, 'ro', markersize=3)
-            ax.text(zoomed_time[peak_idx_zoom] + 1, peak_voltage, 'Peak', 
-                    fontsize=8, va='bottom', ha='left', color='red')
-            
-            # 3. AP Size (vertical line from threshold to peak)
-            mid_time = zoomed_time[peak_idx_zoom] - 2
-            ax.plot([mid_time, mid_time], [threshold_voltage, peak_voltage], 'blue', linewidth=1)
-            ax.plot([mid_time-0.5, mid_time+0.5], [threshold_voltage, threshold_voltage], 'blue', linewidth=1)
-            ax.plot([mid_time-0.5, mid_time+0.5], [peak_voltage, peak_voltage], 'blue', linewidth=1)
-            ap_size_label = 'AP Size' if not show_values else f'AP Size\n{ap_size:.1f} mV'
-            ax.text(mid_time - 1, (threshold_voltage + peak_voltage)/2, ap_size_label, 
-                    fontsize=7, va='center', ha='right', color='blue')
-            
-            # 4. AHP Amplitude (vertical line from threshold to trough)
-            if ahp_trough_idx_zoom < len(zoomed_time):
-                mid_time_ahp = zoomed_time[ahp_trough_idx_zoom] + 3
-                ax.plot([mid_time_ahp, mid_time_ahp], [ahp_trough_voltage, threshold_voltage], 
-                        'purple', linewidth=1)
-                ax.plot([mid_time_ahp-0.5, mid_time_ahp+0.5], [threshold_voltage, threshold_voltage], 'purple', linewidth=1)
-                ax.plot([mid_time_ahp-0.5, mid_time_ahp+0.5], [ahp_trough_voltage, ahp_trough_voltage], 'purple', linewidth=1)
-                ahp_amp_label = 'AHP Amp' if not show_values else f'AHP Amp\n{ahp_amplitude:.1f} mV'
-                ax.text(mid_time_ahp + 1, (threshold_voltage + ahp_trough_voltage)/2, 
-                        ahp_amp_label, 
-                        fontsize=7, va='center', ha='left', color='purple')
-            
-            # 5. AP Halfwidth (horizontal line at 50% of AP size)
-            halfwidth_voltage = threshold_voltage + (ap_size / 2)
-            # Find where trace crosses halfwidth voltage
-            rising_crossings = np.where(zoomed_trace[:peak_idx_zoom] >= halfwidth_voltage)[0]
-            if len(rising_crossings) > 0:
-                hw_start_idx = rising_crossings[0]
-                falling_crossings = np.where(zoomed_trace[peak_idx_zoom:] <= halfwidth_voltage)[0]
-                if len(falling_crossings) > 0:
-                    hw_end_idx = peak_idx_zoom + falling_crossings[0]
-                    hw_start_time = zoomed_time[hw_start_idx]
-                    hw_end_time = zoomed_time[hw_end_idx]
-                    
-                    # Draw horizontal line
-                    ax.plot([hw_start_time, hw_end_time], [halfwidth_voltage, halfwidth_voltage], 
-                           'orange', linewidth=1, alpha=0.9)
-                    ax.plot([hw_start_time, hw_start_time], [halfwidth_voltage-1, halfwidth_voltage+1], 'orange', linewidth=1)
-                    ax.plot([hw_end_time, hw_end_time], [halfwidth_voltage-1, halfwidth_voltage+1], 'orange', linewidth=1)
-                    ax.text((hw_start_time + hw_end_time)/2, halfwidth_voltage + 3, 'Halfwidth',
-                           fontsize=8, va='bottom', ha='center', color='orange', fontweight='bold')
+            if not minimal:
+                # 2. Peak marker
+                ax.plot(zoomed_time[peak_idx_zoom], peak_voltage, 'ro', markersize=3)
+                ax.text(zoomed_time[peak_idx_zoom] + 1, peak_voltage, 'Peak', 
+                        fontsize=8, va='bottom', ha='left', color='red')
+                
+                # 3. AP Size (vertical line from threshold to peak)
+                mid_time = zoomed_time[peak_idx_zoom] - 2
+                ax.plot([mid_time, mid_time], [threshold_voltage, peak_voltage], 'blue', linewidth=1)
+                ax.plot([mid_time-0.5, mid_time+0.5], [threshold_voltage, threshold_voltage], 'blue', linewidth=1)
+                ax.plot([mid_time-0.5, mid_time+0.5], [peak_voltage, peak_voltage], 'blue', linewidth=1)
+                ap_size_label = 'AP Size' if not show_values else f'AP Size\n{ap_size:.1f} mV'
+                ax.text(mid_time - 1, (threshold_voltage + peak_voltage)/2, ap_size_label, 
+                        fontsize=7, va='center', ha='right', color='blue')
+                
+                # 4. AHP Amplitude (vertical line from threshold to trough)
+                if ahp_trough_idx_zoom < len(zoomed_time):
+                    mid_time_ahp = zoomed_time[ahp_trough_idx_zoom] + 3
+                    ax.plot([mid_time_ahp, mid_time_ahp], [ahp_trough_voltage, threshold_voltage], 
+                            'purple', linewidth=1)
+                    ax.plot([mid_time_ahp-0.5, mid_time_ahp+0.5], [threshold_voltage, threshold_voltage], 'purple', linewidth=1)
+                    ax.plot([mid_time_ahp-0.5, mid_time_ahp+0.5], [ahp_trough_voltage, ahp_trough_voltage], 'purple', linewidth=1)
+                    ahp_amp_label = 'AHP Amp' if not show_values else f'AHP Amp\n{ahp_amplitude:.1f} mV'
+                    ax.text(mid_time_ahp + 1, (threshold_voltage + ahp_trough_voltage)/2, 
+                            ahp_amp_label, 
+                            fontsize=7, va='center', ha='left', color='purple')
+                
+                # 5. AP Halfwidth (horizontal line at 50% of AP size)
+                halfwidth_voltage = threshold_voltage + (ap_size / 2)
+                # Find where trace crosses halfwidth voltage
+                rising_crossings = np.where(zoomed_trace[:peak_idx_zoom] >= halfwidth_voltage)[0]
+                if len(rising_crossings) > 0:
+                    hw_start_idx = rising_crossings[0]
+                    falling_crossings = np.where(zoomed_trace[peak_idx_zoom:] <= halfwidth_voltage)[0]
+                    if len(falling_crossings) > 0:
+                        hw_end_idx = peak_idx_zoom + falling_crossings[0]
+                        hw_start_time = zoomed_time[hw_start_idx]
+                        hw_end_time = zoomed_time[hw_end_idx]
+                        
+                        # Draw horizontal line
+                        ax.plot([hw_start_time, hw_end_time], [halfwidth_voltage, halfwidth_voltage], 
+                               'orange', linewidth=1, alpha=0.9)
+                        ax.plot([hw_start_time, hw_start_time], [halfwidth_voltage-1, halfwidth_voltage+1], 'orange', linewidth=1)
+                        ax.plot([hw_end_time, hw_end_time], [halfwidth_voltage-1, halfwidth_voltage+1], 'orange', linewidth=1)
+                        ax.text((hw_start_time + hw_end_time)/2, halfwidth_voltage + 3, 'Halfwidth',
+                               fontsize=8, va='bottom', ha='center', color='orange', fontweight='bold')
 
         ax.set_xlabel('Time (ms)', fontsize=10)
         ax.set_ylabel('Voltage (mV)', fontsize=10)
@@ -1203,20 +1212,11 @@ def plot_sholl_data(ax, df, genotype, dendrite_type, color):
         counts.columns = ['Radius', 'n']
         grouped = grouped.merge(counts, on='Radius')
         grouped['sem'] = grouped['sem'] / np.sqrt(grouped['n'])
+
+        #Plot just a line with shaded SEM, no markers
+        ax.plot(grouped['Radius'], grouped['mean'], color=color, linewidth=1, label=f'{genotype}') 
+        ax.fill_between(grouped['Radius'], grouped['mean'] - grouped['sem'], grouped['mean'] + grouped['sem'], color=color, alpha=0.2)
         
-        # Plot with error bars
-        ax.errorbar(
-            grouped['Radius'], 
-            grouped['mean'], 
-            yerr=grouped['sem'],
-            fmt='o-',
-            color=color,
-            capsize=1,
-            label=f'{genotype} (n={len(df["Cell_ID"].unique())})',
-            alpha=0.8,
-            linewidth=0.5,
-            markersize=1
-        )
 
 #E:I plotting
 def select_and_plot_example(ax, genotype, isi, label):
@@ -1782,6 +1782,10 @@ def plot_unitary_breakdown(ax, df_traces, genotype, pathway_label, annotate=True
     ax.plot(time, control, color='black', linewidth=1.0,
             label=f'Inh(GABAA) (n={n_cells})')
 
+    # GABAB area (shaded area below baseline on gabazine trace) for all traces
+    ax.fill_between(time, gabazine, 0, where=(gabazine < 0),
+                    color='gray', alpha=0.35, edgecolor='none')
+
     # --- Optional annotation of components ---
     if annotate:
         gab_peak_idx = np.nanargmax(gabazine)
@@ -1804,9 +1808,7 @@ def plot_unitary_breakdown(ax, df_traces, genotype, pathway_label, annotate=True
         ax.text(label_x, (gab_peak_val + ctrl_peak_val) / 2, 'Inh(GABAA)',
                 color='black', fontsize=7, va='center', fontweight='bold')
 
-        # 3. Slow IPSP (GABAB) — shaded area below baseline on gabazine trace
-        ax.fill_between(time, gabazine, 0, where=(gabazine < 0),
-                        color='gray', alpha=0.35, edgecolor='none')
+        # 3. Slow IPSP (GABAB) text annotation
         neg_indices = np.where(gabazine < 0)[0]
         if len(neg_indices) > 0:
             ax.text(label_x, -0.5, 'Slow IPSP Area\n(GABAB)',
@@ -2616,79 +2618,64 @@ def plot_isi_example_traces(ax_wt, ax_gnb1, data_dir, master_df, df_ap_ahp, targ
     
     sampling_rate = 20000
     dt_ms = 1000 / sampling_rate
+    baseline_before = 70  # ms of baseline before first spike
     
-    # Plot WT - with baseline normalization
+    # Compute time-shifted arrays so first spike aligns at t=baseline_before
+    wt_time_shifted, gnb1_time_shifted = None, None
+    wt_trace_aligned, gnb1_trace_aligned = None, None
+    wt_peak_times_shifted, gnb1_peak_times_shifted = None, None
+    
+    common_baseline = -65  # mV
+    
     if wt_trace is not None:
-        time = np.arange(len(wt_trace)) * dt_ms
-        
-        # Normalize to common baseline
+        time_raw = np.arange(len(wt_trace)) * dt_ms
+        first_spike_ms = wt_peaks[0] * dt_ms
+        wt_time_shifted = time_raw - first_spike_ms + baseline_before
         baseline_wt = np.mean(wt_trace[int(0.1*len(wt_trace)):int(0.15*len(wt_trace))])
-        common_baseline = -65  # mV
         wt_trace_aligned = wt_trace - baseline_wt + common_baseline
-        
-        ax_wt.plot(time, wt_trace_aligned, 'k-', linewidth=1)
-        
-        # Mark peaks
-        peak_times = wt_peaks * dt_ms
-        peak_voltages = wt_trace_aligned[wt_peaks]
-        # REMOVED: Peak scatter points for cleaner visualization
-        # ax_wt.scatter(peak_times, peak_voltages, color='red', s=2, zorder=5)
-        
-        # REMOVED: ISI interval lines and labels for cleaner visualization
-        # for i in range(len(wt_peaks)-1):
-        #     t1, t2 = peak_times[i], peak_times[i+1]
-        #     v_line = peak_voltages[i:i+2].max() + 5
-        #     ax_wt.plot([t1, t2], [v_line, v_line], 'b-', linewidth=1)
-        #     # REMOVED: ISI time labels for cleaner visualization
-        #     # isi_ms = t2 - t1
-        #     # ax_wt.text((t1+t2)/2, v_line+2, f'{isi_ms:.0f}ms',  
-        #     #           ha='center', va='bottom', fontsize=7, color='blue')
-        
+        wt_peak_times_shifted = wt_peaks * dt_ms - first_spike_ms + baseline_before
+    
+    if gnb1_trace is not None:
+        time_raw = np.arange(len(gnb1_trace)) * dt_ms
+        first_spike_ms = gnb1_peaks[0] * dt_ms
+        gnb1_time_shifted = time_raw - first_spike_ms + baseline_before
+        baseline_gnb1 = np.mean(gnb1_trace[int(0.1*len(gnb1_trace)):int(0.15*len(gnb1_trace))])
+        gnb1_trace_aligned = gnb1_trace - baseline_gnb1 + common_baseline
+        gnb1_peak_times_shifted = gnb1_peaks * dt_ms - first_spike_ms + baseline_before
+    
+    # Compute common xlim
+    xlim_start = 0
+    last_times = []
+    if wt_peak_times_shifted is not None:
+        last_times.append(wt_peak_times_shifted[-1])
+    if gnb1_peak_times_shifted is not None:
+        last_times.append(gnb1_peak_times_shifted[-1])
+    xlim_end = max(last_times) + 100 if last_times else 500
+    
+    # Plot WT
+    if wt_trace_aligned is not None:
+        ax_wt.plot(wt_time_shifted, wt_trace_aligned, 'k-', linewidth=1)
         ax_wt.text(0.02, 0.95, 'WT', transform=ax_wt.transAxes, 
                   fontsize=10, fontweight='bold', va='top')
-        ax_wt.set_xlim(150, time[wt_peaks[-1]] + 100)
+        ax_wt.set_xlim(xlim_start, xlim_end)
     else:
         ax_wt.text(0.5, 0.5, f'WT: No 6-spike trace found for {target_wt}', ha='center')
     
     ax_wt.axis('off')
     
-    # Plot GNB1 - with baseline normalization
-    if gnb1_trace is not None:
-        time = np.arange(len(gnb1_trace)) * dt_ms
-        
-        # Normalize to same common baseline
-        baseline_gnb1 = np.mean(gnb1_trace[int(0.1*len(gnb1_trace)):int(0.15*len(gnb1_trace))])
-        common_baseline = -65  # mV
-        gnb1_trace_aligned = gnb1_trace - baseline_gnb1 + common_baseline
-        
-        ax_gnb1.plot(time, gnb1_trace_aligned, 'r-', linewidth=1)
-        
-        # Mark peaks
-        peak_times = gnb1_peaks * dt_ms
-        peak_voltages = gnb1_trace_aligned[gnb1_peaks]
-        # REMOVED: Peak scatter points for cleaner visualization
-        # ax_gnb1.scatter(peak_times, peak_voltages, color='red', s=2, zorder=5)
-        
-        # REMOVED: ISI interval lines and labels for cleaner visualization
-        # for i in range(len(gnb1_peaks)-1):
-        #     t1, t2 = peak_times[i], peak_times[i+1]
-        #     v_line = peak_voltages[i:i+2].max() + 5
-        #     ax_gnb1.plot([t1, t2], [v_line, v_line], 'b-', linewidth=1)
-        #     # REMOVED: ISI time labels for cleaner visualization
-        #     # isi_ms = t2 - t1
-        #     # ax_gnb1.text((t1+t2)/2, v_line+2, f'{isi_ms:.0f}ms',
-        #     #             ha='center', va='bottom', fontsize=7, color='blue')
-        
+    # Plot GNB1
+    if gnb1_trace_aligned is not None:
+        ax_gnb1.plot(gnb1_time_shifted, gnb1_trace_aligned, 'r-', linewidth=1)
         ax_gnb1.text(0.02, 0.95, 'I80T/+', transform=ax_gnb1.transAxes,
                     fontsize=10, fontweight='bold', va='top', color='red')
-        ax_gnb1.set_xlim(150, time[gnb1_peaks[-1]] + 100)
+        ax_gnb1.set_xlim(xlim_start, xlim_end)
     else:
         ax_gnb1.text(0.5, 0.5, f'GNB1: No 6-spike trace found for {target_gnb1}', ha='center')
     
     ax_gnb1.axis('off')
     
     # Add scale bars to GNB1 plot (100ms, 20mV)
-    if gnb1_trace is not None:
+    if gnb1_trace_aligned is not None:
         add_scale_bar(ax_gnb1, 100, 20, x_pos=0.85, y_pos=0.1)
 
 
@@ -2861,7 +2848,12 @@ def plot_ahp_area_comparison(ax_wt, ax_gnb1, data_dir, master_df, df_ap_ahp, tar
             ax.plot(time[:peak_idx], trace[:peak_idx], color=color, linewidth=1.5)
             ax.plot([peak_time - 2, peak_time + 2], [ap_threshold, ap_threshold], color=color, linewidth=2)
             ax.plot(time[peak_idx:recovery_idx], trace[peak_idx:recovery_idx], color=color, linewidth=1.5)
-            ax.fill_between(time[peak_idx:recovery_idx], trace[peak_idx:recovery_idx], ap_threshold, color=color, alpha=0.3)
+            # Fill full AHP area (only where trace is below threshold)
+            fill_trace = trace[peak_idx:recovery_idx]
+            fill_time = time[peak_idx:recovery_idx]
+            ax.fill_between(fill_time, fill_trace, ap_threshold,
+                           where=(fill_trace <= ap_threshold),
+                           color=color, alpha=0.3)
             ax.plot(peak_time, ap_threshold, 'o', color='blue', markersize=5)
             ax.plot(trough_time, trough_voltage, 'o', color='red', markersize=5)
             
@@ -3074,6 +3066,310 @@ def plot_gabazine_genotype_comparison(ax, df_amplitudes, pathway_name):
     # --- Load significance markers from FDR-corrected file ---
     df_markers = load_figure_5_significance_markers()
     annotate_with_sig_markers(ax, df_markers, 'Gabazine_Amplitude', pathway_name, 'WT_vs_GNB1', range(len(isis)))
+
+
+def plot_ISI_breakdown_mean_sem(ax, df_traces, genotype, pathway_label, isi=50, annotate=False):
+    """
+    Plot mean ± SEM traces (Control vs Gabazine) for a given genotype, pathway, and ISI.
+    Like plot_unitary_breakdown but generalized for any ISI value.
+    Always shows: zero dashed line, GABAB area shading.
+    
+    Args:
+        ax: Matplotlib axis
+        df_traces: Traces dataframe
+        genotype: 'WT' or 'I80T/+' (or 'GNB1')
+        pathway_label: e.g. 'ECIII Input', 'CA3 Apical Input', 'CA3 Basal Input'
+        isi: ISI value (e.g. 50, 10, 300)
+        annotate: Boolean, whether to add bracket/arrow annotations
+    """
+    pathway_map = {
+        'ECIII Input': 'perforant',
+        'CA3 Apical Input': 'schaffer',
+        'CA3 Basal Input': 'basal',
+        'ECIII (Perforant)': 'perforant',
+        'CA3 Apical (Schaffer)': 'schaffer',
+        'CA3 Basal (Basal)': 'basal',
+    }
+    pathway_key = pathway_map.get(pathway_label, 'perforant')
+
+    # Genotype filter
+    if genotype in ('GNB1', 'I80T/+'):
+        genotype_targets = ['GNB1', 'I80T/+']
+    else:
+        genotype_targets = ['WT']
+
+    condition = df_traces[
+        (df_traces['Genotype'].isin(genotype_targets)) &
+        (df_traces['ISI'] == isi)
+    ].copy()
+
+    # Pathway filter
+    if pathway_key == 'basal':
+        subset = condition[condition['Pathway'] == 'Basal_Stratum_Oriens']
+    elif pathway_key == 'perforant':
+        subset = condition[condition['Channel'] == 'channel_1']
+        if 'Pathway' in subset.columns:
+            subset = subset[subset['Pathway'] != 'Basal_Stratum_Oriens']
+    else:  # schaffer
+        subset = condition[condition['Channel'] == 'channel_2']
+
+    if len(subset) == 0:
+        ax.text(0.5, 0.5, 'No data', ha='center', va='center',
+                transform=ax.transAxes, color='red', fontsize=8)
+        ax.axis('off')
+        return None
+
+    # Helper: compute mean + SEM from a trace column
+    def compute_mean_sem(df_sub, col):
+        from collections import Counter
+        traces = []
+        for _, row in df_sub.iterrows():
+            t = row[col]
+            if isinstance(t, np.ndarray) and len(t) > 0:
+                traces.append(t)
+        if not traces:
+            return None, None
+        lengths = [len(t) for t in traces]
+        target_len = Counter(lengths).most_common(1)[0][0]
+        traces = np.array([t for t in traces if len(t) == target_len])
+        mean = np.mean(traces, axis=0)
+        sem  = np.std(traces, axis=0, ddof=1) / np.sqrt(len(traces))
+        return mean, sem
+
+    control,  ctrl_sem  = compute_mean_sem(subset, 'Control_Trace')
+    gabazine, gab_sem   = compute_mean_sem(subset, 'Gabazine_Trace')
+
+    if control is None or gabazine is None:
+        ax.text(0.5, 0.5, 'No traces', ha='center', va='center',
+                transform=ax.transAxes, color='red', fontsize=8)
+        ax.axis('off')
+        return None
+
+    # N-count (unique cells)
+    n_cells = subset['Cell_ID'].dropna().nunique()
+
+    # Baseline alignment
+    baseline_samples = 100
+    control  = control  - np.mean(control [:baseline_samples])
+    gabazine = gabazine - np.mean(gabazine[:baseline_samples])
+
+    # Trim display based on ISI
+    if isi >= 100:
+        display_ms = 600
+    elif isi == 50:
+        display_ms = 550
+    else:
+        display_ms = 350
+    display_samples = int(display_ms * 20000 / 1000)
+    control  = control [:display_samples]
+    gabazine = gabazine[:display_samples]
+    ctrl_sem = ctrl_sem [:display_samples]
+    gab_sem  = gab_sem  [:display_samples]
+
+    time = np.arange(len(control)) * 1000 / 20000  # 20 kHz → ms
+
+    # --- Plot mean traces + SEM shading ---
+    # Gabazine / Excitation (magenta)
+    ax.fill_between(time, gabazine - gab_sem, gabazine + gab_sem,
+                    color='magenta', alpha=0.2, edgecolor='none')
+    ax.plot(time, gabazine, color='magenta', linewidth=1.0,
+            label=f'Excitation (n={n_cells})')
+
+    # Control / With Inhibition (black)
+    ax.fill_between(time, control - ctrl_sem, control + ctrl_sem,
+                    color='black', alpha=0.15, edgecolor='none')
+    ax.plot(time, control, color='black', linewidth=1.0,
+            label=f'Inh(GABAA) (n={n_cells})')
+
+    # GABAB area (shaded area below baseline on gabazine trace) for all traces
+    ax.fill_between(time, gabazine, 0, where=(gabazine < 0),
+                    color='gray', alpha=0.35, edgecolor='none')
+
+    # Optional annotation of components
+    if annotate:
+        gab_peak_idx = np.nanargmax(gabazine)
+        gab_peak_val = gabazine[gab_peak_idx]
+        ctrl_peak_val = control[gab_peak_idx]
+
+        label_x = time[-1] + 5
+
+        # 1. Excitation arrow
+        ax.annotate('', xy=(time[gab_peak_idx], 0),
+                    xytext=(time[gab_peak_idx], gab_peak_val),
+                    arrowprops=dict(arrowstyle='<->', color='magenta', lw=1.0))
+        ax.text(label_x, gab_peak_val / 2, 'Excitation',
+                color='magenta', fontsize=7, va='center', fontweight='bold')
+
+        # 2. Inh(GABAA) arrow
+        ax.annotate('', xy=(time[gab_peak_idx], ctrl_peak_val),
+                    xytext=(time[gab_peak_idx], gab_peak_val),
+                    arrowprops=dict(arrowstyle='<->', color='black', lw=1.0))
+        ax.text(label_x, (gab_peak_val + ctrl_peak_val) / 2, 'Inh(GABAA)',
+                color='black', fontsize=7, va='center', fontweight='bold')
+
+        # 3. GABAB text label
+        neg_indices = np.where(gabazine < 0)[0]
+        if len(neg_indices) > 0:
+            ax.text(label_x, -0.5, 'Slow IPSP Area\n(GABAB)',
+                    ha='left', fontsize=7, color='gray', fontweight='bold')
+
+    # Baseline reference line
+    ax.axhline(0, color='gray', linestyle='--', linewidth=0.5)
+    ax.set_title(pathway_label, fontsize=8, fontweight='bold')
+    ax.axis('off')
+
+    return n_cells
+
+
+def plot_single_example_ISI(ax, df_traces, df_amplitudes, genotype, isi,
+                            pathway_label='ECIII Input', annotate=False, rank=0):
+    """
+    Plot a single-cell example trace (Control vs Gabazine) for a specific genotype and ISI.
+    Shows zero dashed line and GABAB area shading on all panels.
+
+    Args:
+        ax: Matplotlib axis
+        df_traces: Traces dataframe
+        df_amplitudes: Amplitudes dataframe (used for auto-selecting best cell)
+        genotype: 'WT' or 'I80T/+' (or 'GNB1')
+        isi: ISI value (e.g. 50, 10)
+        pathway_label: e.g. 'ECIII Input', 'CA3 Apical Input', 'CA3 Basal Input'
+        annotate: Boolean, whether to add component arrows/labels
+    """
+    pathway_map = {
+        'ECIII Input': 'perforant',
+        'CA3 Apical Input': 'schaffer',
+        'CA3 Basal Input': 'basal',
+    }
+    pathway_key = pathway_map.get(pathway_label, 'perforant')
+    pathway_name = {
+        'perforant': 'Perforant',
+        'schaffer':  'Schaffer',
+        'basal':     'Basal_Stratum_Oriens',
+    }[pathway_key]
+
+    # --- Genotype targets ---
+    if genotype in ('GNB1', 'I80T/+'):
+        genotype_targets = ['GNB1', 'I80T/+']
+    else:
+        genotype_targets = ['WT']
+
+    # --- Auto-select best cell for this genotype ---
+    sub_amp = df_amplitudes[
+        (df_amplitudes['ISI'] == isi) &
+        (df_amplitudes['Pathway'] == pathway_name) &
+        df_amplitudes['Genotype'].isin(genotype_targets)
+    ].copy()
+
+    if len(sub_amp) == 0:
+        ax.text(0.5, 0.5, 'No data', ha='center', va='center',
+                transform=ax.transAxes, fontsize=8)
+        ax.axis('off')
+        return
+
+    # Score: prefer cells with large gabazine peak + large GABAB area
+    gab_peak  = sub_amp['Gabazine_Amplitude'].fillna(0)
+    gabab_neg = sub_amp['GABAB_Area'].fillna(0).abs()
+    norm_peak = (gab_peak  - gab_peak.min())  / (gab_peak.max()  - gab_peak.min()  + 1e-9)
+    norm_neg  = (gabab_neg - gabab_neg.min()) / (gabab_neg.max() - gabab_neg.min() + 1e-9)
+    sub_amp['_score'] = norm_peak + 2.0 * norm_neg
+    sorted_cells = sub_amp.sort_values('_score', ascending=False)
+    pick_idx = min(rank, len(sorted_cells) - 1)
+    best_cell = sorted_cells.iloc[pick_idx]['Cell_ID']
+
+    # --- Fetch trace ---
+    sub_trace = df_traces[
+        (df_traces['Cell_ID'] == best_cell) &
+        (df_traces['ISI'] == isi) &
+        df_traces['Genotype'].isin(genotype_targets)
+    ]
+    if pathway_key == 'basal':
+        sub_trace = sub_trace[sub_trace['Pathway'] == 'Basal_Stratum_Oriens']
+    elif pathway_key == 'perforant':
+        sub_trace = sub_trace[sub_trace['Channel'] == 'channel_1']
+        if 'Pathway' in sub_trace.columns:
+            sub_trace = sub_trace[sub_trace['Pathway'] != 'Basal_Stratum_Oriens']
+    else:
+        sub_trace = sub_trace[sub_trace['Channel'] == 'channel_2']
+
+    if len(sub_trace) == 0:
+        ax.text(0.5, 0.5, f'No trace\n({best_cell})', ha='center', va='center',
+                transform=ax.transAxes, fontsize=8)
+        ax.axis('off')
+        return
+
+    control  = sub_trace.iloc[0].get('Control_Trace')
+    gabazine = sub_trace.iloc[0].get('Gabazine_Trace')
+
+    if not isinstance(control, np.ndarray) or not isinstance(gabazine, np.ndarray):
+        ax.axis('off')
+        return
+
+    # --- Baseline-subtract ---
+    bl = 100
+    control  = control  - np.mean(control [:bl])
+    gabazine = gabazine - np.mean(gabazine[:bl])
+
+    # --- Trim display ---
+    display_ms = 550 if isi >= 50 else 350
+    display_samples = int(display_ms * 20000 / 1000)
+    control  = control [:display_samples]
+    gabazine = gabazine[:display_samples]
+    time = np.arange(len(control)) * 1000 / 20000  # → ms
+
+    # --- Plot traces ---
+    ax.plot(time, gabazine, color='magenta', linewidth=1.0, label='Excitation')
+    ax.plot(time, control,  color='black',   linewidth=1.0, label='Inh(GABAA)')
+    ax.axhline(0, color='gray', linestyle='--', linewidth=0.5, alpha=0.6)
+
+    # --- GABAB shading ---
+    neg_mask = gabazine < 0
+    if np.any(neg_mask):
+        ax.fill_between(time, gabazine, 0, where=neg_mask,
+                        color='gray', alpha=0.35, edgecolor='none')
+
+    # --- Annotations ---
+    if annotate:
+        half = len(gabazine) // 2
+        last_half = gabazine[half:]
+        last_peak_local = int(np.nanargmax(last_half))
+        gab_peak_idx  = half + last_peak_local
+        gab_peak_val  = float(gabazine[gab_peak_idx])
+        ctrl_peak_val = float(control[gab_peak_idx])
+        peak_t = float(time[gab_peak_idx])
+
+        # Excitation arrow
+        ax.annotate('', xy=(peak_t, 0), xytext=(peak_t, gab_peak_val),
+                    arrowprops=dict(arrowstyle='<->', color='magenta',
+                                   lw=1.0, mutation_scale=8))
+        ax.text(peak_t + time[-1]*0.03, gab_peak_val * 0.5,
+                'Excitation', color='magenta', fontsize=7,
+                va='center', fontweight='bold')
+
+        # Inh(GABAA) arrow
+        if ctrl_peak_val < gab_peak_val - 0.2:
+            ax.annotate('', xy=(peak_t, ctrl_peak_val), xytext=(peak_t, gab_peak_val),
+                        arrowprops=dict(arrowstyle='<->', color='black',
+                                       lw=1.0, mutation_scale=8))
+            ax.text(peak_t + time[-1]*0.03,
+                    (gab_peak_val + ctrl_peak_val) * 0.5,
+                    'Inh(GABAA)', color='black', fontsize=7,
+                    va='center', fontweight='bold')
+
+        # GABAB label
+        if np.any(neg_mask):
+            deepest_idx = int(np.nanargmin(gabazine))
+            deepest_t   = float(time[deepest_idx])
+            deepest_v   = float(gabazine[deepest_idx])
+            ax.text(deepest_t, deepest_v * 0.55,
+                    'Slow IPSP Area\n(GABAB)',
+                    ha='center', va='center', fontsize=7,
+                    color='dimgray', fontweight='bold')
+
+
+    ax.axis('off')
+
+
 
 def plot_10ms_ISI_breakdown(ax, df_traces, genotype, pathway_label):
     """
@@ -4178,6 +4474,10 @@ def plot_theta_averaged_traces(fig, gs, processed_stats, cols, acq_freq=20000, s
                     panel_b_ymin = min(panel_b_ymin, np.nanmin(exp_mean - exp_sem))
                     panel_b_ymax = max(panel_b_ymax, np.nanmax(exp_mean + exp_sem))
     
+    # Fallback if no data was found
+    if panel_b_ymin == float('inf') or panel_b_ymax == float('-inf'):
+        panel_b_ymin, panel_b_ymax = -10, 30
+
     # Add padding
     y_range = panel_b_ymax - panel_b_ymin
     panel_b_ymin -= 0.1 * y_range
@@ -4204,6 +4504,11 @@ def plot_theta_averaged_traces(fig, gs, processed_stats, cols, acq_freq=20000, s
             # Plot measured trace with SEM
             if stats_key in processed_stats and pathway in processed_stats[stats_key]:
                 p_stats = processed_stats[stats_key][pathway]
+                if 'mean' not in p_stats:
+                    # No averaged data for this genotype/pathway — skip
+                    ax.set_ylim(panel_b_ymin, panel_b_ymax)
+                    ax.axis('off')
+                    continue
                 mean_trace = p_stats['mean']
                 sem_trace = p_stats['sem']
                 
@@ -4305,10 +4610,6 @@ def plot_plateau_area_bars_fig7(fig, gs, plateau_df, df_stats=None, start_row=4,
         
         if square:
             ax_bar.set_box_aspect(1)
-        
-        # Each pathway scales independently — apply_clean_yticks already run inside plot_bar_scatter
-        # Ensure bottom is at or below 0 (some plateau areas may be slightly negative)
-        # apply_clean_yticks removed: plot_bar_scatter already handles this and the ymin=-5 clamp.
         
         if p_idx == 0:
             ax_bar.set_ylabel('Plateau Area\n(mV·s)', fontsize=8)
@@ -5035,14 +5336,14 @@ def plot_traces_GIRK_v2(ax, traces_before, traces_after, genotype, drug_name,
             if 'Both' in cell_data['traces']:
                 trace = cell_data['traces']['Both']
                 if len(trace) >= 30000:
-                    before_list.append(trace[10000:30000])
+                    before_list.append(trace[9600:30000])
     
     for cell_id, cell_data in traces_after.items():
         if cell_data['genotype'] in (genotype, data_geno):
             if 'Both' in cell_data['traces']:
                 trace = cell_data['traces']['Both']
                 if len(trace) >= 30000:
-                    after_list.append(trace[10000:30000])
+                    after_list.append(trace[9600:30000])
     
     if before_list and after_list:
         before_mean = np.mean(before_list, axis=0)

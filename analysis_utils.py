@@ -290,11 +290,24 @@ def get_AP_and_AHP_rheobase_properties_data_and_traces(master_df, data_dir, AP_p
                                     trace_after_threshold, relative_AHP_trough_idx, AP_threshold_value, sampling_rate
                                 )
                                 
-                                # Decay Area
-                                end_idx = int(relative_AHP_trough_idx) + duration_samples
-                                if end_idx >= len(trace_after_threshold): end_idx = len(trace_after_threshold) - 1
+                                # Full AHP Area: from peak through trough to threshold recovery
+                                # Find where trace recovers back to threshold after trough
+                                trace_after_trough = trace_after_threshold[relative_AHP_trough_idx:]
+                                recovery_indices = np.where(trace_after_trough >= AP_threshold_value)[0]
+                                if len(recovery_indices) > 0:
+                                    end_idx = relative_AHP_trough_idx + recovery_indices[0]
+                                else:
+                                    end_idx = len(trace_after_threshold) - 1
                                 
-                                clipped_area = AP_threshold_value - trace_after_threshold[int(relative_AHP_trough_idx):end_idx + 1]
+                                # Area from peak to recovery (full AHP)
+                                ahp_start = peak_idx
+                                ahp_end = end_idx + 1
+                                if ahp_end > len(trace_after_threshold):
+                                    ahp_end = len(trace_after_threshold)
+                                
+                                clipped_area = AP_threshold_value - trace_after_threshold[ahp_start:ahp_end]
+                                # Clip negative values (above threshold) to zero
+                                clipped_area = np.maximum(clipped_area, 0)
                                 norm_area = clipped_area / AHP_trough_amplitude
                                 decay_area = np.trapz(norm_area, dx=dt) * 1000
 
@@ -4630,18 +4643,20 @@ def load_and_concat_behavior_files(base_dir, file_map):
 
 def process_anxiety_ratios(df):
     """
-    Calculates Center/Outer ratios for anxiety analysis.
+    Calculates Center / Total time ratio for anxiety analysis.
+    Ratio = Center Time / (Center Time + Outer Time)
     Handles division by zero by inserting NaNs.
     """
     # Create copies to avoid SettingWithCopy warnings
     center_time = df['Center Zone : time (s)'].values
     outer_time = df['Outer Zone : time (s)'].values
+    total_time = center_time + outer_time
     
     # Avoid division by zero
     with np.errstate(divide='ignore', invalid='ignore'):
-        ratio = center_time / outer_time
-        # Replace infinity with NaN
-        ratio[outer_time == 0] = np.nan
+        ratio = (center_time / total_time) * 100
+        # Replace infinity/NaN from zero total
+        ratio[total_time == 0] = np.nan
         
     df['Center_Outer_Time_Ratio'] = ratio
     return df
@@ -4709,77 +4724,83 @@ def filter_olm_by_exploration(df, threshold=20):
 def calculate_t_maze_alternations(positions_df):
     """
     Calculates spontaneous alternation percentages based on position strings.
+
+    The T-maze has four zones: Start (long vertical stem), Center (junction
+    between arms), Left Arm, and Right Arm.
+
+    Algorithm:
+      1. Split the position string into Start-to-Start segments. Each segment
+         represents one trip from Start, through Center, to an arm, and back.
+      2. For each segment, identify the first arm the animal visits.
+      3. Compare consecutive segments: if the first arm visited differs
+         between two consecutive segments, that counts as a spontaneous
+         alternation. The animal must return to Start between arm visits —
+         direct transitions from one arm to the other through Center
+         without returning to Start are excluded.
+
+      Denominator = number of consecutive segment-pairs where both segments
+                    contain an arm visit.
+      Numerator   = segment-pairs where the first arm visited differs.
+      Percent     = (Numerator / Denominator) × 100.
     """
-    # Helper to count sequence occurrences
-    def count_sequence(seq, pos_list):
-        return sum(pos_list[i:i+len(seq)] == seq for i in range(len(pos_list) - len(seq) + 1))
-
-    # Define 16 alternation sequences
-    alternation_patterns = {
-        'SCLCSCR': ['Start', 'Center', 'Left Arm', 'Center', 'Start', 'Center', 'Right Arm'],
-        'SCRCSCL': ['Start', 'Center', 'Right Arm', 'Center', 'Start', 'Center', 'Left Arm'],
-        'SLCSCR':  ['Start', 'Left Arm', 'Center', 'Start', 'Center', 'Right Arm'],
-        'SCLSCR':  ['Start', 'Center', 'Left Arm', 'Start', 'Center', 'Right Arm'],
-        'SCLCSR':  ['Start', 'Center', 'Left Arm', 'Center', 'Start', 'Right Arm'],
-        'SRCSCL':  ['Start', 'Right Arm', 'Center', 'Start', 'Center', 'Left Arm'],
-        'SCRSCL':  ['Start', 'Center', 'Right Arm', 'Start', 'Center', 'Left Arm'],
-        'SCRCSL':  ['Start', 'Center', 'Right Arm', 'Center', 'Start', 'Left Arm'],
-        'SLSCR':   ['Start', 'Left Arm', 'Start', 'Center', 'Right Arm'],
-        'SCLSR':   ['Start', 'Center', 'Left Arm', 'Start', 'Right Arm'],
-        'SLCSR':   ['Start', 'Left Arm', 'Center', 'Start', 'Right Arm'],
-        'SRSCL':   ['Start', 'Right Arm', 'Start', 'Center', 'Left Arm'],
-        'SCRSL':   ['Start', 'Center', 'Right Arm', 'Start', 'Left Arm'],
-        'SRCSL':   ['Start', 'Right Arm', 'Center', 'Start', 'Left Arm'],
-        'SLSR':    ['Start', 'Left Arm', 'Start', 'Right Arm'],
-        'SRSL':    ['Start', 'Right Arm', 'Start', 'Left Arm'],
-    }
-
-    # Define helper patterns for denominator
-    SCL_pattern = ['Start', 'Center', 'Left Arm']
-    SCR_pattern = ['Start', 'Center', 'Right Arm']
-    SL_pattern =  ['Start', 'Left Arm']
-    SR_pattern = ['Start', 'Right Arm']
 
     results = []
-    
-    # Iterate through rows
-    for index, row in positions_df.iterrows():
+
+    # Iterate through rows (each row = one animal / trial)
+    for _, row in positions_df.iterrows():
         # Handle cases where position string might be missing
         if pd.isna(row.get('Positions_Strings')):
-            results.append({'Num Alternations': 0, 'Percent Alternations': np.nan})
+            results.append({
+                'Num_Alternations': 0,
+                'Percent_Alternations': np.nan,
+                'Denominator': 0,
+            })
             continue
-            
+
         pos_string = str(row['Positions_Strings'])
         pos_list = [x.strip() for x in pos_string.split(',')]
 
-        # Count all 16 patterns
-        alternation_counts = {name: count_sequence(pattern, pos_list) for name, pattern in alternation_patterns.items()}
-        total_alternations = sum(alternation_counts.values())
+        # Find every index where the animal is in the Start zone
+        start_indices = [i for i, pos in enumerate(pos_list) if pos == 'Start']
 
-        # Compute denominator components
-        SCL = count_sequence(SCL_pattern, pos_list)
-        SCR = count_sequence(SCR_pattern, pos_list)
-        SL = count_sequence(SL_pattern, pos_list)
-        SR = count_sequence(SR_pattern, pos_list)
+        # Extract the first arm choice from each Start-to-Start segment
+        arm_choices = []
+        for si_idx, si in enumerate(start_indices):
+            # Segment runs from this Start to the next Start (or end of list)
+            next_si = (start_indices[si_idx + 1]
+                       if si_idx < len(start_indices) - 1
+                       else len(pos_list))
+            subseq = pos_list[si:next_si]
 
-        denominator = SCL + SCR + SL + SR - 1
-        
+            # Find the first arm visit in this segment
+            for zone in subseq:
+                if zone in ('Left Arm', 'Right Arm'):
+                    arm_choices.append(zone)
+                    break
+
+        # Count alternations between consecutive arm choices
+        num_alternations = sum(
+            1 for i in range(1, len(arm_choices))
+            if arm_choices[i] != arm_choices[i - 1]
+        )
+
+        denominator = max(len(arm_choices) - 1, 0)
+
         if denominator > 0:
-            percent_alternations = (total_alternations / denominator) * 100
+            percent_alternations = (num_alternations / denominator) * 100
         else:
             percent_alternations = 0
 
         results.append({
-            'Num_Alternations': total_alternations,
+            'Num_Alternations': num_alternations,
             'Percent_Alternations': percent_alternations,
-            'Denominator': denominator
+            'Denominator': denominator,
         })
 
     # Join results back to original dataframe
     results_df = pd.DataFrame(results)
-    # Reset index of original to ensure alignment
     final_df = pd.concat([positions_df.reset_index(drop=True), results_df], axis=1)
-    
+
     return final_df
 
 # ==================================================================================================

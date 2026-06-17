@@ -69,6 +69,33 @@ plt.rcParams['ytick.labelsize'] = 8
 plt.rcParams['legend.fontsize'] = 8
 
 # ==================================================================================================
+# HELPERS
+# ==================================================================================================
+
+def normalize_axes_sizes(axes_list, fig):
+    """
+    Force all axes in axes_list to the same width and height (in figure coords).
+    Uses the minimum width and minimum height found among the axes so that
+    nothing overflows its allocated grid cell.  Each axis keeps its centre.
+    Call AFTER all plotting is done (so tight_layout / constrained_layout
+    has already adjusted positions) but BEFORE savefig.
+    """
+    fig.canvas.draw()                       # materialise positions
+    renderer = fig.canvas.get_renderer()
+    fig.draw(renderer)
+
+    bboxes = [ax.get_position() for ax in axes_list]
+    target_w = min(b.width  for b in bboxes)
+    target_h = min(b.height for b in bboxes)
+
+    for ax in axes_list:
+        bb = ax.get_position()
+        cx, cy = bb.x0 + bb.width / 2, bb.y0 + bb.height / 2
+        new_x0 = cx - target_w / 2
+        new_y0 = cy - target_h / 2
+        ax.set_position([new_x0, new_y0, target_w, target_h])
+
+# ==================================================================================================
 # FIGURE 1: BEHAVIOR
 # ==================================================================================================
 
@@ -191,11 +218,11 @@ def plot_figure_1_behavior():
     ax_d = fig.add_subplot(gs_d[1])
     if df_of_anx is not None:
         plot_bar_scatter(ax_d, df_of_anx, 'Genotype', 'Center_Outer_Time_Ratio', 'Genotype', order=geno_order)
-        ax_d.set_title('Anxiety Ratio', fontsize=8)
-        ax_d.set_ylabel('Center Outer Time Ratio')
+        ax_d.set_title('Open Field Anxiety', fontsize=8)
+        ax_d.set_ylabel('% Time in Center')
         apply_clean_yticks(ax_d)
-        ax_d.set_ylim([-.02, 0.4])
-        ax_d.set_yticks([0, 0.2, 0.4])
+        ax_d.set_ylim([-1, 30])
+        ax_d.set_yticks([0, 10, 20, 30])
         annotate_from_stats(ax_d, df_stats, "Fig 1D", "Anxiety", x1=0, x2=1, y_pos=get_safe_y(df_of_anx['Center_Outer_Time_Ratio']))
 
     # ===== ROW 3: E (Circadian Activity) | F (Total Dark Phase) =====
@@ -270,6 +297,10 @@ def plot_figure_1_behavior():
         ax_j.set_ylim(-1, 100)
         ax_j.set_yticks([0, 25, 50, 75, 100])
         annotate_from_stats(ax_j, df_stats, "Fig 1K", "Alternation", x1=0, x2=1, y_pos=90)
+
+    # --- Normalize all bar/scatter axes to the same dimensions (except Panel B) ---
+    bar_scatter_axes = [ax_c, ax_d, ax_f, ax_h, ax_i, ax_j]
+    normalize_axes_sizes(bar_scatter_axes, fig)
 
     save_current_fig('Figure_1_Behavior')
 
@@ -456,7 +487,7 @@ def plot_figure_2_physiology():
                                              target_cell_id=target_gnb_rheo,
                                              sweep_idx=sweep_idx_gnb,
                                              analysis_df=df_ap_ahp, show_values=False,
-                                             show_annotations=False, color='red')
+                                             show_annotations='minimal', color='red')
             ax_c_gnb.axis('off')
             ax_c_gnb.text(0.02, 0.95, 'I80T/+', transform=ax_c_gnb.transAxes,
                           fontsize=8, fontweight='bold', va='top', color='red')
@@ -474,7 +505,7 @@ def plot_figure_2_physiology():
     ax_c_bar = fig.add_subplot(gs_C[1, :])
     if df_ap_ahp is not None and 'decay_area' in df_ap_ahp.columns:
         plot_bar_scatter(ax_c_bar, df_ap_ahp, 'Genotype', 'decay_area',
-                         'Genotype', order=['WT', 'I80T/+'], ymin=-2, ymax=60)
+                         'Genotype', order=['WT', 'I80T/+'], ymin=0, ymax=220)
         ax_c_bar.set_ylabel('AHP Area\n(mV·ms)', fontsize=7)
         ax_c_bar.set_title('AHP Decay', fontsize=8)
         ax_c_bar.set_box_aspect(1)
@@ -537,7 +568,16 @@ def plot_figure_2_physiology():
 
         max_time = max(len(wt_trace) if wt_trace is not None else 0,
                        len(gnb1_trace) if gnb1_trace is not None else 0) / 20
-        xlim_start, xlim_end = 150, max_time
+        # 50ms baseline before first spike
+        from scipy.signal import find_peaks as _fp
+        first_spike_times = []
+        for tr in [wt_trace, gnb1_trace]:
+            if tr is not None:
+                pks, _ = _fp(tr, height=-20, distance=100)
+                if len(pks) > 0:
+                    first_spike_times.append(pks[0] / 20)  # convert to ms
+        xlim_start = max(0, min(first_spike_times) - 50) if first_spike_times else 150
+        xlim_end = max_time
         wt_aligned   = wt_trace   - np.mean(wt_trace  [int(0.1*len(wt_trace  )):int(0.15*len(wt_trace  ))]) + common_baseline if wt_trace is not None else None
         gnb1_aligned = gnb1_trace - np.mean(gnb1_trace[int(0.1*len(gnb1_trace)):int(0.15*len(gnb1_trace))]) + common_baseline if gnb1_trace is not None else None
         ylim_min = min(wt_aligned.min()   if wt_aligned   is not None else -100,
@@ -622,7 +662,8 @@ def plot_figure_2_physiology():
     add_subplot_label(ax_h_wt, "H")
     if raw_traces_path and master_df is not None:
         from plotting_utils import plot_isi_example_traces
-        plot_isi_example_traces(ax_h_wt, ax_h_gnb, raw_traces_path, master_df, df_ap_ahp)
+        plot_isi_example_traces(ax_h_wt, ax_h_gnb, raw_traces_path, master_df, df_ap_ahp,
+                                target_wt='07112024_c1', target_gnb1='07302024_c1')
     else:
         ax_h_wt.text(0.5, 0.5, 'ISI Traces Unavailable', ha='center', color='red')
         ax_h_wt.axis('off')
@@ -782,11 +823,11 @@ def plot_figure_3_morphology():
             xerr = np.nan_to_num(xerr, nan=0.0)
             
             ax_basal_cdf.errorbar(x, y, xerr=xerr, fmt='o-', color=color, 
-                                 markersize=1, capsize=1, label=genotype, alpha=0.8, linewidth=0.5)
+                                 markersize=1, capsize=0, label=genotype, alpha=0.8, linewidth=1)
         
         ax_basal_cdf.set_xlabel('Distance from Soma (μm)', fontsize=8)
-        ax_basal_cdf.set_ylabel('Cumulative Probability', fontsize=8)
-        #ax_basal_cdf.set_title('Basal Dendrites - Cumulative Distribution', fontsize=9)
+        ax_basal_cdf.set_ylabel('Cumulative Fraction \nof Intersections', fontsize=8)
+        ax_basal_cdf.set_title('Basal Dendrites', fontsize=9)
         ax_basal_cdf.set_ylim(0, 1.05)
         ax_basal_cdf.set_xlim(0, ax_basal_cdf.get_xlim()[1])
         ax_basal_cdf.spines['top'].set_visible(False)
@@ -815,11 +856,11 @@ def plot_figure_3_morphology():
             xerr = np.nan_to_num(xerr, nan=0.0)
             
             ax_apical_cdf.errorbar(x, y, xerr=xerr, fmt='o-', color=color, 
-                                  markersize=1, capsize=1, label=genotype, alpha=0.8, linewidth=0.5)
+                                  markersize=1, capsize=0, label=genotype, alpha=0.8, linewidth=1)
         
         ax_apical_cdf.set_xlabel('Distance from Soma (μm)', fontsize=8)
-        ax_apical_cdf.set_ylabel('Cumulative Probability', fontsize=8)
-        #ax_apical_cdf.set_title('Apical Dendrites ', fontsize=9)
+        ax_apical_cdf.set_ylabel('Cumulative Fraction \nof Intersections', fontsize=8)
+        ax_apical_cdf.set_title('Apical Dendrites ', fontsize=9)
         ax_apical_cdf.set_ylim(0, 1.05)
         ax_apical_cdf.set_xlim(0, ax_apical_cdf.get_xlim()[1])
         ax_apical_cdf.spines['top'].set_visible(False)
@@ -1088,11 +1129,13 @@ def plot_figure_4_Unitary_E_I_Breakdown():
         ax.spines['right'].set_visible(False)
         ax.set_ylim(bottom=0)
 
-    # Sync all three y-axes for Row 4 (GABAA - absolute values)
-    ymax_r4 = max(ax.get_ylim()[1] for ax in axs_row4)
-    for ax in axs_row4:
-        ax.set_ylim(0, ymax_r4)
-        apply_clean_yticks(ax)
+    # Row 4 (Panel D): Manual ylim and yticks per column
+    axs_row4[0].set_ylim(0, 20)
+    axs_row4[0].set_yticks([0, 5, 10, 15, 20])
+    axs_row4[1].set_ylim(0, 10)
+    axs_row4[1].set_yticks([0, 2, 4, 6, 8, 10])
+    axs_row4[2].set_ylim(0, 10)
+    axs_row4[2].set_yticks([0, 2, 4, 6, 8, 10])
 
     ## ROW 5: GABAB Decay Area at ISI=300 (absolute value)
     axs_row5 = []
@@ -1115,15 +1158,13 @@ def plot_figure_4_Unitary_E_I_Breakdown():
         ax.spines['right'].set_visible(False)
         ax.set_ylim(bottom=0)
 
-    # Sync only CA3 Apical (1) and CA3 Basal (2) y-axes for Row 5 (GABAB - absolute values)
-    ymax_r5_ca3 = max(axs_row5[1].get_ylim()[1], axs_row5[2].get_ylim()[1])
-    for ax in [axs_row5[1], axs_row5[2]]:
-        ax.set_ylim(0, ymax_r5_ca3)
-        apply_clean_yticks(ax)
-    # ECIII scales independently
-    eciii_ax = axs_row5[0]
-    eciii_ax.set_ylim(0, eciii_ax.get_ylim()[1])
-    apply_clean_yticks(eciii_ax)
+    # Row 5 (Panel E): Manual ylim and yticks per column
+    axs_row5[0].set_ylim(0, 1.2)
+    axs_row5[0].set_yticks([0, 0.3, 0.6, 0.9, 1.2])
+    axs_row5[1].set_ylim(0, 0.20)
+    axs_row5[1].set_yticks([0, 0.05, 0.10, 0.15, 0.20])
+    axs_row5[2].set_ylim(0, 0.20)
+    axs_row5[2].set_yticks([0, 0.05, 0.10, 0.15, 0.20])
 
     # -----------------------------------------------------------------------
     # Load stats and annotate significance brackets (drawn after ylims are set)
@@ -1161,14 +1202,14 @@ def plot_figure_4_Unitary_E_I_Breakdown():
 
 def plot_figure_5_EI_frequency_dependence(output_path='paper_figures/Figure_5_EI_frequency_dependence.png'):
     """
-    Figure 5: Redigned E:I balance now across frequencies (ISIs)
+    Figure 5: E:I balance across frequencies (ISIs)
     
-    Layout: 5 rows x 3 columns
-    - Row 1: ISI 10 for WT 
-    - Row 2: ISI 10 for I80T/+
-    - Row 3: Excitation Amplitudes (Gabazine) - All ISIs
-    - Row 4: Inh (GABAA) Amplitudes (Estimated) - All ISIs
-    - Row 5: Inh (GABAB) Area - All ISIs
+    Layout: 5 rows
+    - Row 1 (A): WT Mean±SEM traces — 50ms ISI (3 pathways) | 10ms ISI (3 pathways)
+    - Row 2 (B): I80T/+ Mean±SEM traces — 50ms ISI (3 pathways) | 10ms ISI (3 pathways)
+    - Row 3 (C): Excitation Amplitudes (Gabazine) - All ISIs
+    - Row 4 (D): Inh (GABAA) Amplitudes (Estimated) - All ISIs
+    - Row 5 (E): Inh (GABAB) Area - All ISIs
     """
     print("\n--- Generating Figure 5: E:I Balance Redesign ---")
     setup_publication_style()
@@ -1183,15 +1224,15 @@ def plot_figure_5_EI_frequency_dependence(output_path='paper_figures/Figure_5_EI
     
     # Convert 17.5 cm to inches
     fig_width = 17.5 / 2.54 
-    fig_height = 10.5  # 4 rows: 1 example + 3 quantification
+    fig_height = 11.0  # 5 rows: 2 trace + 3 quantification
     
     fig = plt.figure(figsize=(fig_width, fig_height))
     
-    gs = fig.add_gridspec(4, 3,
+    gs = fig.add_gridspec(5, 3,
                          wspace=0.45, hspace=0.9,
                          left=0.08, right=0.98,
-                         top=0.96, bottom=0.08,
-                         height_ratios=[1.1, 1, 1, 1])
+                         top=0.96, bottom=0.06,
+                         height_ratios=[0.7, 0.7, 0.9, 0.9, 0.9])
     
     # Load Significance Markers
     base_stats_dir = 'paper_data/E_I_data/'
@@ -1213,34 +1254,67 @@ def plot_figure_5_EI_frequency_dependence(output_path='paper_figures/Figure_5_EI
         ('CA3 Apical (Schaffer)', 'schaffer', 'channel_2'),
         ('CA3 Basal', 'basal', 'Basal_Stratum_Oriens')
     ]
-    
-    # ROW 1 (A): Two ECIII example traces side-by-side
-    # Left: ISI=50ms with annotations  |  Right: ISI=10ms, no annotations
-    print("  Row 1: WT example traces (ECIII, 50ms | 10ms)")
+
     from matplotlib.gridspec import GridSpecFromSubplotSpec
-    gs_row1 = GridSpecFromSubplotSpec(1, 2, subplot_spec=gs[0, :],
-                                      wspace=0.05, hspace=0)
 
-    ax_50 = fig.add_subplot(gs_row1[0, 0])
-    plot_example_ISI_trace(ax_50, df_traces, df_amplitudes, 50, 'ECIII Input', annotate=True)
-    add_subplot_label(ax_50, 'A', x=-0.05)
-    ax_50.set_title('ECIII — ISI 50 ms', fontsize=9, fontweight='bold')
+    # ==========================================================================
+    # ROW 1 (A): WT single example traces — ECIII Input: 50ms ISI | 10ms ISI
+    # ==========================================================================
+    print("  Row 1 (A): WT example traces (ECIII, 50ms | 10ms ISI)")
+    gs_row_a = GridSpecFromSubplotSpec(1, 2, subplot_spec=gs[0, :],
+                                       wspace=0.15, hspace=0)
 
-    ax_10 = fig.add_subplot(gs_row1[0, 1])
-    plot_example_ISI_trace(ax_10, df_traces, df_amplitudes, 10, 'ECIII Input', annotate=False)
-    ax_10.set_title('ECIII — ISI 10 ms', fontsize=9, fontweight='bold')
-    # Legend on the right panel
-    ax_10.legend(frameon=False, fontsize=7, loc='lower right',
-                 bbox_to_anchor=(1.02, -0.08), ncol=1)
+    ax_wt_50 = fig.add_subplot(gs_row_a[0, 0])
+    plot_single_example_ISI(ax_wt_50, df_traces, df_amplitudes, 'WT', 50,
+                            pathway_label='ECIII Input', annotate=True, rank=8)
+    add_subplot_label(ax_wt_50, 'A', x=-0.05)
+    ax_wt_50.text(-0.15, 0.5, 'WT', transform=ax_wt_50.transAxes, ha='right',
+                  va='center', fontweight='bold', fontsize=10, rotation=90)
+    ax_wt_50.set_title('ECIII — ISI 50 ms', fontsize=9, fontweight='bold')
 
-    # ROW 2 (B): Excitation Amplitudes — shared Y-axis anchored to ECIII (col 0)
+    ax_wt_10 = fig.add_subplot(gs_row_a[0, 1])
+    plot_single_example_ISI(ax_wt_10, df_traces, df_amplitudes, 'WT', 10,
+                            pathway_label='ECIII Input', annotate=False)
+    ax_wt_10.set_title('ECIII — ISI 10 ms', fontsize=9, fontweight='bold')
+
+    # Add scale bar to 50ms panel
+    add_scale_bar(ax_wt_50, x_scale_ms=50, y_scale_mv=2, x_pos=0.05, y_pos=0.05)
+
+    # ==========================================================================
+    # ROW 2 (B): I80T/+ single example traces — ECIII Input: 50ms ISI | 10ms ISI
+    # ==========================================================================
+    print("  Row 2 (B): I80T/+ example traces (ECIII, 50ms | 10ms ISI)")
+    gs_row_b = GridSpecFromSubplotSpec(1, 2, subplot_spec=gs[1, :],
+                                       wspace=0.15, hspace=0)
+
+    ax_mut_50 = fig.add_subplot(gs_row_b[0, 0])
+    plot_single_example_ISI(ax_mut_50, df_traces, df_amplitudes, 'I80T/+', 50,
+                            pathway_label='ECIII Input', annotate=False)
+    add_subplot_label(ax_mut_50, 'B', x=-0.05)
+    ax_mut_50.text(-0.15, 0.5, 'I80T/+', transform=ax_mut_50.transAxes, ha='right',
+                   va='center', fontweight='bold', fontsize=10, rotation=90,
+                   color='red')
+
+    ax_mut_10 = fig.add_subplot(gs_row_b[0, 1])
+    plot_single_example_ISI(ax_mut_10, df_traces, df_amplitudes, 'I80T/+', 10,
+                            pathway_label='ECIII Input', annotate=False)
+    # Legend on right panel of bottom trace row
+    ax_mut_10.legend(frameon=False, fontsize=7, loc='lower right',
+                     bbox_to_anchor=(1.02, -0.08), ncol=1)
+
+    # Add scale bar to I80T/+ 50ms panel
+    add_scale_bar(ax_mut_50, x_scale_ms=50, y_scale_mv=2, x_pos=0.05, y_pos=0.05)
+
+    # ==========================================================================
+    # ROW 3 (C): Excitation Amplitudes — shared Y-axis
+    # ==========================================================================
     ylims_exc = []
     axs_exc = []
     for col, (label, pathway_key, channel) in enumerate(pathways):
-        ax = fig.add_subplot(gs[1, col])
+        ax = fig.add_subplot(gs[2, col])
         axs_exc.append(ax)
         if col == 0:
-            add_subplot_label(ax, "B", fontsize=10, fontweight='bold')
+            add_subplot_label(ax, "C", fontsize=10, fontweight='bold')
         pathway_name = {'perforant': 'Perforant', 'schaffer': 'Schaffer',
                         'basal': 'Basal_Stratum_Oriens'}[pathway_key]
         ylim = plot_metric_comparison(ax, df_amplitudes, pathway_name,
@@ -1257,17 +1331,19 @@ def plot_figure_5_EI_frequency_dependence(output_path='paper_figures/Figure_5_EI
     for ax in axs_exc:
         ax.set_ylim(0, 25)
 
-    # ROW 3 (C): Inh (GABAA) Amplitudes (absolute value)
+    # ==========================================================================
+    # ROW 4 (D): Inh (GABAA) Amplitudes (absolute value)
+    # ==========================================================================
     ylims_inh_a = []
     axs_inh_a = []
     # Take absolute value of Estimated_Inhibition_Amplitude for plotting
     df_amplitudes_abs_inh = df_amplitudes.copy()
     df_amplitudes_abs_inh['Estimated_Inhibition_Amplitude'] = df_amplitudes_abs_inh['Estimated_Inhibition_Amplitude'].abs()
     for col, (label, pathway_key, channel) in enumerate(pathways):
-        ax = fig.add_subplot(gs[2, col])
+        ax = fig.add_subplot(gs[3, col])
         axs_inh_a.append(ax)
         if col == 0:
-            add_subplot_label(ax, "C", fontsize=10, fontweight='bold')
+            add_subplot_label(ax, "D", fontsize=10, fontweight='bold')
         pathway_name = {'perforant': 'Perforant', 'schaffer': 'Schaffer', 
                         'basal': 'Basal_Stratum_Oriens'}[pathway_key]
         ylim = plot_metric_comparison(ax, df_amplitudes_abs_inh, pathway_name, 
@@ -1280,22 +1356,24 @@ def plot_figure_5_EI_frequency_dependence(output_path='paper_figures/Figure_5_EI
         ylims_inh_a.append(ylim)
         if col > 0: ax.set_ylabel('')
         
-    # Sync Y-axis for ALL pathways in Row 3 (Panel C)
+    # Sync Y-axis for ALL pathways in Row 4 (Panel D)
     max_y = max([yl[1] for yl in ylims_inh_a if yl is not None])
     for ax in axs_inh_a:
         ax.set_ylim(0, max_y)
 
-    # ROW 4 (D): Inh (GABAB) Area (absolute value)
+    # ==========================================================================
+    # ROW 5 (E): Inh (GABAB) Area (absolute value)
+    # ==========================================================================
     ylims_inh_b = []
     axs_inh_b = []
     # Take absolute value of GABAB_Area for plotting
     df_amplitudes_abs_gabab = df_amplitudes.copy()
     df_amplitudes_abs_gabab['GABAB_Area'] = df_amplitudes_abs_gabab['GABAB_Area'].abs()
     for col, (label, pathway_key, channel) in enumerate(pathways):
-        ax = fig.add_subplot(gs[3, col])
+        ax = fig.add_subplot(gs[4, col])
         axs_inh_b.append(ax)
         if col == 0:
-            add_subplot_label(ax, "D", fontsize=10, fontweight='bold')
+            add_subplot_label(ax, "E", fontsize=10, fontweight='bold')
         pathway_name = {'perforant': 'Perforant', 'schaffer': 'Schaffer', 
                         'basal': 'Basal_Stratum_Oriens'}[pathway_key]
         ylim = plot_metric_comparison(ax, df_amplitudes_abs_gabab, pathway_name, 
@@ -1308,7 +1386,7 @@ def plot_figure_5_EI_frequency_dependence(output_path='paper_figures/Figure_5_EI
         ylims_inh_b.append(ylim)
         if col > 0: ax.set_ylabel('')
         
-    # Sync Y-axis for ALL pathways in Row 4 (Panel D) — fix between 0 and 1
+    # Sync Y-axis for ALL pathways in Row 5 (Panel E) — fix between 0 and 1
     for ax in axs_inh_b:
         ax.set_ylim(0, 1)
         ax.set_yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
@@ -1469,6 +1547,19 @@ def plot_figure_7_dendritic():
     
     if plateau_df is not None and not plateau_df.empty:
         plot_plateau_area_bars_fig7(fig, gs, plateau_df, df_stats, start_row=4, label="C")
+        # Panel C: Manual ylim and yticks per column — minimal whitespace
+        # Col 0 = Perforant (Left), Col 1 = Schaffer (Middle), Col 2 = Both (Right)
+        _ax_c0 = fig.axes[-3]
+        _ax_c0.set_ylim(-2, 26)
+        _ax_c0.set_yticks([0, 5, 10, 15, 20, 25])
+
+        _ax_c1 = fig.axes[-2]
+        _ax_c1.set_ylim(-2, 20)
+        _ax_c1.set_yticks([0, 5, 10, 15, 20])
+
+        _ax_c2 = fig.axes[-1]
+        _ax_c2.set_ylim(-2, 34)
+        _ax_c2.set_yticks([0, 6, 12, 18, 24, 30])
     else:
         ax_c_bar = fig.add_subplot(gs[4, :])
         add_subplot_label(ax_c_bar, "C")
@@ -1491,12 +1582,12 @@ def plot_figure_7_dendritic():
     if df_auc_total is not None and not df_auc_total.empty:
         df_stats_full = pd.read_csv(supralin_stats_path) if os.path.exists(supralin_stats_path) else None
         plot_supralinear_auc_bars_fig7(fig, gs, df_auc_total, df_stats_full, start_row=6, label="E")
-        # Clamp all three AUC panels to ymin=-20 so scale is compact
+        # Clamp all three AUC panels: ymin=-20, ymax=45, with 5 ticks
         for col in range(3):
             _ax = fig.axes[-(3 - col)]   # last 3 axes added by the function
-            _, _top = _ax.get_ylim()
-            _ax.set_ylim(-20, _top)
-            apply_clean_yticks(_ax)
+            _ax.set_ylim(-20, 45)
+            _ax.set_yticks([-20, 0, 20, 40])
+            #apply_clean_yticks(_ax, n=5)
     else:
         ax_e_auc = fig.add_subplot(gs[6, :])
         add_subplot_label(ax_e_auc, "E")
@@ -1680,11 +1771,13 @@ def plot_supplemental_figure_1():
 
 def plot_supplemental_figure_2():
     """
-    Supplemental Figure 2: Pie Chart of number of births by genotype and sex
+    Supplemental Figure 2: Pie Charts of births by genotype and sex.
+    Panel A: Overall genotype distribution (WT vs I80T/+)
+    Panel B: WT sex distribution (M vs F)
+    Panel C: I80T/+ sex distribution (M vs F)
     """
 
     print("\n--- Generating Supplemental Figure 2: Births by Genotype ---")
-
 
     master_birth_df = pd.read_csv('Master_DF_littermate_Sex.csv')
 
@@ -1692,29 +1785,64 @@ def plot_supplemental_figure_2():
     # Rename GNB1 -> I80T/+ for display
     df = rename_genotype(df)
 
-    # WIDTH constraint: max 17.5 cm, explicitly made smaller as requested
-    fig_width = 15 / 2.54
+    # WIDTH constraint: max 17.5 cm
+    fig_width = 17.5 / 2.54
     fig_height = 5  # inches
 
-    fig, axes = plt.subplots(1, 2, figsize=(fig_width, fig_height), sharex=False, sharey=True)
-    fig.subplots_adjust(wspace=0.35, hspace=0.35, left=0.08, right=0.98, top=0.9, bottom=0.15)
+    fig, axes = plt.subplots(1, 3, figsize=(fig_width, fig_height))
+    fig.subplots_adjust(wspace=0.4, hspace=0.35, left=0.05, right=0.98, top=0.88, bottom=0.1)
 
+    # Color scheme
+    sex_colors = {'Male': '#5B9BD5', 'Female': '#ED7D7D'}
+    genotype_colors = {'WT': 'black', 'I80T/+': '#D64545'}
 
+    # --- Panel A: Overall Genotype Distribution ---
     group_counts = df.groupby("Genotype").size()
-
-    labels = [f"{genotype}" for genotype in group_counts.index]
+    labels = list(group_counts.index)
     sizes = group_counts.values
+    colors_geno = [genotype_colors.get(g, 'gray') for g in labels]
 
-    axes[0].pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90, colors=plt.cm.Paired.colors)
-    axes[0].set_title("Distribution of Genotypes (WT vs I80T/+) ") 
+    wedges, texts, autotexts = axes[0].pie(
+        sizes, labels=labels, autopct='%1.1f%%', startangle=90,
+        colors=colors_geno, textprops={'fontsize': 8})
+    for at in autotexts:
+        at.set_color('white')
+        at.set_fontweight('bold')
+    axes[0].set_title('All Births\nby Genotype', fontsize=9, fontweight='bold')
+    add_subplot_label(axes[0], 'A', x=-0.1, y=1.05)
 
-    group_counts = df.groupby(["Genotype", "Sex"]).size()
+    # --- Panel B: WT — Male vs Female ---
+    wt_df = df[df['Genotype'] == 'WT']
+    wt_sex_counts = wt_df.groupby('Sex').size()
+    wt_labels = list(wt_sex_counts.index)
+    wt_sizes = wt_sex_counts.values
+    wt_sex_colors = {'M': '#2D2D2D', 'F': '#8C8C8C'}
+    wt_colors = [wt_sex_colors.get(s, 'gray') for s in wt_labels]
 
-    labels = [f"{genotype} {sex}" for genotype, sex in group_counts.index]
-    sizes = group_counts.values
+    wedges, texts, autotexts = axes[1].pie(
+        wt_sizes, labels=wt_labels, autopct=lambda pct: f'{pct:.1f}%\n(n={int(round(pct/100.*sum(wt_sizes)))})',
+        startangle=90, colors=wt_colors, textprops={'fontsize': 8})
+    for at in autotexts:
+        at.set_fontweight('bold')
+    axes[1].set_title(f'WT (n={sum(wt_sizes)})\nby Sex', fontsize=9, fontweight='bold')
+    add_subplot_label(axes[1], 'B', x=-0.1, y=1.05)
 
-    axes[1].pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90, colors=plt.cm.Paired.colors)
-    axes[1].set_title("Distribution of WT and I80T/+ Litters by Sex") 
+    # --- Panel C: I80T/+ — Male vs Female ---
+    mut_df = df[df['Genotype'] == 'I80T/+']
+    mut_sex_counts = mut_df.groupby('Sex').size()
+    mut_labels = list(mut_sex_counts.index)
+    mut_sizes = mut_sex_counts.values
+    mut_sex_colors = {'M': '#D64545', 'F': '#F5A3A3'}
+    mut_colors = [mut_sex_colors.get(s, 'gray') for s in mut_labels]
+
+    wedges, texts, autotexts = axes[2].pie(
+        mut_sizes, labels=mut_labels, autopct=lambda pct: f'{pct:.1f}%\n(n={int(round(pct/100.*sum(mut_sizes)))})',
+        startangle=90, colors=mut_colors, textprops={'fontsize': 8})
+    for at in autotexts:
+        at.set_fontweight('bold')
+    axes[2].set_title(f'I80T/+ (n={sum(mut_sizes)})\nby Sex', fontsize=9, fontweight='bold',
+                      color='#D64545')
+    add_subplot_label(axes[2], 'C', x=-0.1, y=1.05)
 
     save_current_fig('Supplemental_Figure_2_Births_By_Genotype')
 

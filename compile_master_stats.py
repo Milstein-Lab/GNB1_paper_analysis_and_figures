@@ -117,7 +117,7 @@ wt_anx  = df_anx[df_anx["Genotype"] == "WT"]["Center_Outer_Time_Ratio"]
 gnb_anx = df_anx[df_anx["Genotype"] == "GNB1"]["Center_Outer_Time_Ratio"]
 st = df_s1[df_s1["Figure_Panel"] == "Fig 1D"].iloc[0]
 rows.append(row(
-    "Figure 1", "D", "Open Field Center:Outer Time Ratio", "N/A", "N/A",
+    "Figure 1", "D", "Open Field % Time in Center", "N/A", "N/A",
     wt_anx.mean(), wt_anx.sem(), len(wt_anx),
     gnb_anx.mean(), gnb_anx.sem(), len(gnb_anx),
     st["Test_Used"], st["Statistic"], st["P_Value"], st["Significance"]
